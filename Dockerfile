@@ -18,5 +18,5 @@ COPY . .
 ENV PORT=10000
 EXPOSE 10000
 
-# gunicorn con 1 worker + threads (necesario para SocketIO in-memory)
-CMD gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 100 --timeout 120 web_app:app
+# Ejecutar directamente con Python (Flask-SocketIO maneja el servidor)
+CMD ["python", "web_app.py"]

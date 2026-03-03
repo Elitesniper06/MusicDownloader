@@ -86,14 +86,29 @@ def log_to_client(message: str):
     socketio.emit("log", {"message": message})
 
 
+# ── Debug: handler 404 para ver qué pasa ──────────────────────────
+@app.errorhandler(404)
+def debug_404(e):
+    """Muestra info de debug cuando una ruta no se encuentra."""
+    rules = [str(rule) for rule in app.url_map.iter_rules()]
+    return jsonify({
+        "error": "Not Found",
+        "path": request.path,
+        "method": request.method,
+        "registered_routes": rules,
+    }), 404
+
+
 # ── Rutas (registradas SIEMPRE) ───────────────────────────────────
 @app.route("/")
 def index():
+    print(f"[route] GET / requested", flush=True)
     return render_template("index.html")
 
 
 @app.route("/health")
 def health():
+    print(f"[route] GET /health requested", flush=True)
     loaded = bool(_heavy_modules)
     return jsonify({"status": "ok", "modules_loaded": loaded, "error": _import_error})
 
@@ -303,8 +318,14 @@ def _download_worker(url: str, dest: str):
 # ── Pre-cargar módulos pesados en background ───────────────────────
 threading.Thread(target=_load_heavy, daemon=True).start()
 
-# ── Punto de entrada (solo dev local) ──────────────────────────────
+# ── Listar rutas registradas ───────────────────────────────────────
+print("[boot] Registered routes:", flush=True)
+for rule in app.url_map.iter_rules():
+    print(f"  {rule.methods} {rule.rule}", flush=True)
+print(f"[boot] Total routes: {len(list(app.url_map.iter_rules()))}", flush=True)
+
+# ── Punto de entrada ──────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    print(f"  [DEV] Starting on 0.0.0.0:{port} ...", flush=True)
+    print(f"[boot] Starting socketio.run on 0.0.0.0:{port} ...", flush=True)
     socketio.run(app, host="0.0.0.0", port=port, debug=False, allow_unsafe_werkzeug=True)
