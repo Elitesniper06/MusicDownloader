@@ -3,6 +3,19 @@
 # ============================================================================
 
 import os
+import sys
+
+# ── Diagnóstico temprano (ANTES de imports que podrían fallar) ─────
+print("=" * 55, flush=True)
+print("  Music Downloader Pro — Starting...", flush=True)
+print(f"  Python : {sys.version}", flush=True)
+print(f"  CWD    : {os.getcwd()}", flush=True)
+print(f"  Files  : {os.listdir('.')}", flush=True)
+print(f"  Tpl dir: {os.path.isdir('templates')}", flush=True)
+if os.path.isdir("templates"):
+    print(f"  Tpl ls : {os.listdir('templates')}", flush=True)
+print("=" * 55, flush=True)
+
 import socket
 import tempfile
 import threading
@@ -10,18 +23,42 @@ import time
 import zipfile
 from pathlib import Path
 
-from flask import Flask, render_template, request, jsonify, send_from_directory
-from flask_socketio import SocketIO
+try:
+    from flask import Flask, render_template, request, jsonify, send_from_directory
+    from flask_socketio import SocketIO
+    print("  [OK] flask + flask-socketio", flush=True)
+except Exception as exc:
+    print(f"  [FAIL] flask/socketio: {exc}", flush=True)
+    raise
 
-from config import (
-    SPOTIFY_CLIENT_ID,
-    SPOTIFY_CLIENT_SECRET,
-    DEEZER_ARL,
-    SLSKD_API_URL,
-    SLSKD_API_KEY,
-)
-from spotify_utils import is_spotify_url, get_tracks_from_spotify_url
-from downloader import download_track, is_youtube_url, get_youtube_info
+try:
+    from config import (
+        SPOTIFY_CLIENT_ID,
+        SPOTIFY_CLIENT_SECRET,
+        DEEZER_ARL,
+        SLSKD_API_URL,
+        SLSKD_API_KEY,
+    )
+    print("  [OK] config", flush=True)
+except Exception as exc:
+    print(f"  [FAIL] config: {exc}", flush=True)
+    raise
+
+try:
+    from spotify_utils import is_spotify_url, get_tracks_from_spotify_url
+    print("  [OK] spotify_utils", flush=True)
+except Exception as exc:
+    print(f"  [FAIL] spotify_utils: {exc}", flush=True)
+    raise
+
+try:
+    from downloader import download_track, is_youtube_url, get_youtube_info
+    print("  [OK] downloader", flush=True)
+except Exception as exc:
+    print(f"  [FAIL] downloader: {exc}", flush=True)
+    raise
+
+print("  All imports OK — building Flask app...", flush=True)
 
 # ── Flask App ──────────────────────────────────────────────────────
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -271,16 +308,7 @@ def _download_worker(url: str, dest: str):
 
 
 # ── Punto de entrada ───────────────────────────────────────────────
-import sys
-
-print("=" * 55, flush=True)
-print("  🎵 Music Downloader Pro — Starting...", flush=True)
-print(f"  Python: {sys.version}", flush=True)
-print(f"  Templates dir exists: {os.path.isdir('templates')}", flush=True)
-print(f"  index.html exists: {os.path.isfile('templates/index.html')}", flush=True)
-print("=" * 55, flush=True)
-
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    print(f"  Starting on port {port}...", flush=True)
+    print(f"  [DEV] Starting on 0.0.0.0:{port} ...", flush=True)
     socketio.run(app, host="0.0.0.0", port=port, debug=False, allow_unsafe_werkzeug=True)

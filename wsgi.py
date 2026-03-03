@@ -1,5 +1,5 @@
-# wsgi.py — Punto de entrada para gunicorn en producción
-from web_app import app, socketio
+# wsgi.py — Punto de entrada alternativo para gunicorn
+from web_app import app, socketio  # noqa: F401
 
-if __name__ == "__main__":
-    socketio.run(app)
+# gunicorn importa 'app' desde este módulo
+# CMD: gunicorn -w 1 --threads 100 -b 0.0.0.0:$PORT wsgi:app
