@@ -14,9 +14,12 @@ RUN pip install --no-cache-dir -r requirements-web.txt
 # Copiar el resto del código
 COPY . .
 
+# Verificar que los archivos están
+RUN echo "=== Files in /app ===" && ls -la && echo "=== Templates ===" && ls -la templates/
+
 # Puerto
 ENV PORT=10000
 EXPOSE 10000
 
-# Ejecutar directamente con Flask-SocketIO + eventlet
+# Ejecutar con Flask-SocketIO (threading mode)
 CMD ["python", "web_app.py"]
