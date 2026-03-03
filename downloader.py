@@ -29,6 +29,20 @@ except ImportError:
     MUTAGEN_AVAILABLE = False
 
 
+# ── Opciones anti-bot para yt-dlp en servidores ──────────────────
+_YTDLP_ANTIBOT = {
+    "extractor_args": {"youtube": {"player_client": ["web", "default"]}},
+    "http_headers": {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/131.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "en-US,en;q=0.9",
+    },
+}
+
+
 def _find_ffmpeg_path() -> Optional[str]:
     """
     Busca la ruta de FFmpeg en el sistema.
@@ -360,6 +374,7 @@ def plan_b_download(
 
     # Opciones de yt-dlp para máxima calidad de audio
     ydl_opts = {
+        **_YTDLP_ANTIBOT,
         "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
         "outtmpl": output_template,
         "quiet": True,
@@ -646,6 +661,7 @@ def get_youtube_info(url: str) -> list[dict]:
     if is_playlist:
         # Para playlists usamos extract_flat para solo obtener la lista
         ydl_opts = {
+            **_YTDLP_ANTIBOT,
             "quiet": True,
             "no_warnings": True,
             "extract_flat": True,
@@ -664,6 +680,7 @@ def get_youtube_info(url: str) -> list[dict]:
     else:
         # Para videos individuales, extraer metadatos completos
         ydl_opts = {
+            **_YTDLP_ANTIBOT,
             "quiet": True,
             "no_warnings": True,
             "noplaylist": True,  # Forzar tratar como video individual

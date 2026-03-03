@@ -406,52 +406,26 @@
         }
 
         // ── Actions ───────────────────────────────────────────
-        async function startDownload() {
+        function startDownload() {
             const url = urlInput.value.trim();
             if (!url) {
                 addLog('❌ Pega una URL antes de descargar.');
                 urlInput.focus();
                 return;
             }
-
-            try {
-                const resp = await fetch('/api/download', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url, to_device: true }),
-                });
-                const data = await resp.json();
-                if (!data.ok) {
-                    addLog('❌ ' + data.error);
-                }
-            } catch (err) {
-                addLog('❌ Error de conexión: ' + err.message);
-            }
+            // Enviar por SocketIO (aislado por sesión)
+            socket.emit('start_download', { url });
         }
 
-        async function stopDownload() {
+        function stopDownload() {
             btnStop.disabled = true;
             btnStop.innerHTML = '⏹ Parando...';
-            try {
-                await fetch('/api/stop', { method: 'POST' });
-            } catch (err) {
-                addLog('❌ Error: ' + err.message);
-            }
+            socket.emit('stop_download');
         }
-
-        async function changeFolder() {}
 
         // ── Enter key to download ─────────────────────────────
         urlInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !isDownloading) startDownload();
-        });
-
-        // ── Init ──────────────────────────────────────────────
-        fetch('/api/status').then(r => r.json()).then(data => {
-            if (data.downloading) {
-                isDownloading = true;
-                updateUI();
-            }
         });
     </script>
 </body>

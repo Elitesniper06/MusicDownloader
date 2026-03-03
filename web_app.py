@@ -1,14 +1,12 @@
 # ============================================================================
 # web_app.py — Servidor web con interfaz responsive (Flask + SocketIO)
 # ============================================================================
-#  ESTRATEGIA: crear Flask app + registrar rutas INMEDIATAMENTE,
-#  y diferir los imports pesados (downloader, spotify, deezer) a cuando
-#  se necesiten.  Así la web SIEMPRE responde aunque algo falle al importar.
+#  - Imports pesados diferidos (Flask siempre responde)
+#  - Sesiones aisladas por usuario (cada uno ve solo sus descargas)
 # ============================================================================
 
 import os
 import sys
-import socket
 import tempfile
 import threading
 import time
@@ -21,32 +19,48 @@ from flask_socketio import SocketIO
 print(f"[boot] Python {sys.version}", flush=True)
 print(f"[boot] CWD = {os.getcwd()}", flush=True)
 
-# ── Flask App (se crea PRIMERO, antes de cualquier import pesado) ──
+# ── Flask App ──────────────────────────────────────────────────────
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "music-dl-2024")
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 print("[boot] Flask + SocketIO creados OK", flush=True)
 
-# ── Estado global ──────────────────────────────────────────────────
-DEFAULT_FOLDER = str(Path.home() / "Music" / "MusicDownloader")
+# ── Directorios ────────────────────────────────────────────────────
 SERVER_TEMP = str(Path(tempfile.gettempdir()) / "MusicDownloaderTemp")
 os.makedirs(SERVER_TEMP, exist_ok=True)
 
-state = {
-    "downloading": False,
-    "stop_requested": False,
-    "dest_folder": DEFAULT_FOLDER,
-    "to_device": False,
-}
+# ── Estado POR SESIÓN ──────────────────────────────────────────────
+# Cada Socket.IO sid tiene su propio estado aislado
+_sessions = {}   # { sid: { downloading, stop_requested, temp_dir } }
+_sessions_lock = threading.Lock()
+
+
+def _get_session(sid: str) -> dict:
+    """Obtiene o crea el estado de una sesión."""
+    with _sessions_lock:
+        if sid not in _sessions:
+            sess_dir = os.path.join(SERVER_TEMP, sid.replace("/", "_"))
+            os.makedirs(sess_dir, exist_ok=True)
+            _sessions[sid] = {
+                "downloading": False,
+                "stop_requested": False,
+                "temp_dir": sess_dir,
+            }
+        return _sessions[sid]
+
+
+def _remove_session(sid: str):
+    with _sessions_lock:
+        _sessions.pop(sid, None)
+
 
 # ── Imports pesados diferidos ──────────────────────────────────────
-_heavy_modules = {}          # cache de modulos cargados
-_import_error = None         # primer error de import, si hubo
+_heavy_modules = {}
+_import_error = None
 
 
 def _load_heavy():
-    """Importa downloader, spotify_utils, config la primera vez que se llaman."""
     global _import_error
     if _import_error:
         return False
@@ -82,124 +96,138 @@ def _load_heavy():
         return False
 
 
-def log_to_client(message: str):
-    socketio.emit("log", {"message": message})
+def _log_to(sid: str, message: str):
+    """Envía log SOLO al usuario con este sid."""
+    socketio.emit("log", {"message": message}, to=sid)
 
 
-# ── Debug: handler 404 para ver qué pasa ──────────────────────────
+# ── SocketIO events ───────────────────────────────────────────────
+@socketio.on("connect")
+def on_connect():
+    sid = request.sid
+    _get_session(sid)
+    print(f"[ws] Connected: {sid}", flush=True)
+
+
+@socketio.on("disconnect")
+def on_disconnect():
+    sid = request.sid
+    sess = _get_session(sid)
+    sess["stop_requested"] = True
+    _remove_session(sid)
+    print(f"[ws] Disconnected: {sid}", flush=True)
+
+
+# ── Rutas HTTP ─────────────────────────────────────────────────────
 @app.errorhandler(404)
-def debug_404(e):
-    """Muestra info de debug cuando una ruta no se encuentra."""
-    rules = [str(rule) for rule in app.url_map.iter_rules()]
-    return jsonify({
-        "error": "Not Found",
-        "path": request.path,
-        "method": request.method,
-        "registered_routes": rules,
-    }), 404
+def handle_404(e):
+    return jsonify({"error": "Not Found", "path": request.path}), 404
 
 
-# ── Rutas (registradas SIEMPRE) ───────────────────────────────────
 @app.route("/")
 def index():
-    print(f"[route] GET / requested", flush=True)
     return render_template("index.html")
 
 
 @app.route("/health")
 def health():
-    print(f"[route] GET /health requested", flush=True)
-    loaded = bool(_heavy_modules)
-    return jsonify({"status": "ok", "modules_loaded": loaded, "error": _import_error})
+    return jsonify({
+        "status": "ok",
+        "modules_loaded": bool(_heavy_modules),
+        "error": _import_error,
+    })
 
 
 @app.route("/api/status")
 def api_status():
     return jsonify({
-        "downloading": state["downloading"],
-        "dest_folder": state["dest_folder"],
         "modules_loaded": bool(_heavy_modules),
         "import_error": _import_error,
+        "active_sessions": len(_sessions),
     })
 
 
-@app.route("/api/set_folder", methods=["POST"])
-def api_set_folder():
-    data = request.json or {}
-    folder = data.get("folder", "").strip()
-    if folder:
-        state["dest_folder"] = folder
-        return jsonify({"ok": True, "folder": folder})
-    return jsonify({"ok": False, "error": "Carpeta vacía"}), 400
+# ── SocketIO actions (llamadas desde el cliente JS) ───────────────
+@socketio.on("start_download")
+def handle_start_download(data):
+    """El cliente pide iniciar descarga. Data = { url: str }."""
+    sid = request.sid
+    sess = _get_session(sid)
 
-
-@app.route("/api/download", methods=["POST"])
-def api_download():
     if not _load_heavy():
-        return jsonify({"ok": False, "error": f"Módulos no disponibles: {_import_error}"}), 500
+        _log_to(sid, f"❌ Módulos no disponibles: {_import_error}")
+        return
 
-    if state["downloading"]:
-        return jsonify({"ok": False, "error": "Ya hay una descarga en curso."}), 409
+    if sess["downloading"]:
+        _log_to(sid, "⚠️ Ya tienes una descarga en curso.")
+        return
 
-    data = request.json or {}
-    url = data.get("url", "").strip()
-    folder = data.get("folder", "").strip()
-
+    url = (data or {}).get("url", "").strip()
     if not url:
-        return jsonify({"ok": False, "error": "URL vacía."}), 400
+        _log_to(sid, "❌ URL vacía.")
+        return
 
-    if folder:
-        state["dest_folder"] = folder
-
-    state["to_device"] = True
-    actual_folder = SERVER_TEMP
-    os.makedirs(actual_folder, exist_ok=True)
-
-    state["downloading"] = True
-    state["stop_requested"] = False
+    sess["downloading"] = True
+    sess["stop_requested"] = False
 
     thread = threading.Thread(
         target=_download_worker,
-        args=(url, actual_folder),
+        args=(sid, url, sess),
         daemon=True,
     )
     thread.start()
 
-    return jsonify({"ok": True, "message": "Descarga iniciada."})
+
+@socketio.on("stop_download")
+def handle_stop_download():
+    sid = request.sid
+    sess = _get_session(sid)
+    if sess["downloading"]:
+        sess["stop_requested"] = True
+        _log_to(sid, "⚠️ Deteniendo tras la canción actual...")
 
 
-@app.route("/api/stop", methods=["POST"])
-def api_stop():
-    if state["downloading"]:
-        state["stop_requested"] = True
-        log_to_client("⚠️ Deteniendo tras la canción actual...")
-        return jsonify({"ok": True})
-    return jsonify({"ok": False, "error": "No hay descarga en curso."}), 400
-
-
+# ── Rutas de descarga de archivos ─────────────────────────────────
 @app.route("/api/download_file/<path:filename>")
 def api_download_file(filename):
-    for folder in [state["dest_folder"], SERVER_TEMP]:
-        full_path = os.path.join(folder, filename)
-        if os.path.isfile(full_path):
-            return send_from_directory(folder, filename, as_attachment=True)
+    """Busca el archivo en cualquier carpeta de sesión."""
+    for sid_dir in _iter_session_dirs():
+        full = os.path.join(sid_dir, filename)
+        if os.path.isfile(full):
+            return send_from_directory(sid_dir, filename, as_attachment=True)
+    full = os.path.join(SERVER_TEMP, filename)
+    if os.path.isfile(full):
+        return send_from_directory(SERVER_TEMP, filename, as_attachment=True)
     return jsonify({"error": "Archivo no encontrado"}), 404
 
 
 @app.route("/api/download_zip/<path:filename>")
 def api_download_zip(filename):
-    full_path = os.path.join(SERVER_TEMP, filename)
-    if os.path.isfile(full_path):
+    for sid_dir in _iter_session_dirs():
+        full = os.path.join(sid_dir, filename)
+        if os.path.isfile(full):
+            return send_from_directory(sid_dir, filename, as_attachment=True)
+    full = os.path.join(SERVER_TEMP, filename)
+    if os.path.isfile(full):
         return send_from_directory(SERVER_TEMP, filename, as_attachment=True)
     return jsonify({"error": "ZIP no encontrado"}), 404
 
 
-# ── Worker de descarga ─────────────────────────────────────────────
-def _download_worker(url: str, dest: str):
-    m = _heavy_modules  # alias corto
+def _iter_session_dirs():
+    """Devuelve todos los directorios de sesión activos."""
+    with _sessions_lock:
+        return [s["temp_dir"] for s in _sessions.values()]
+
+
+# ── Worker de descarga (aislado por sid) ───────────────────────────
+def _download_worker(sid: str, url: str, sess: dict):
+    m = _heavy_modules
+    dest = sess["temp_dir"]
+    log = lambda msg: _log_to(sid, msg)
+
     try:
-        socketio.emit("download_started")
-        log_to_client("🚀 Descargando...")
+        socketio.emit("download_started", to=sid)
+        log("🚀 Descargando...")
 
         tracks = []
         session_files = []
@@ -212,14 +240,14 @@ def _download_worker(url: str, dest: str):
                     client_secret=m["SPOTIFY_CLIENT_SECRET"],
                 )
             except Exception as e:
-                log_to_client(f"❌ Error Spotify: {e}")
+                log(f"❌ Error Spotify: {e}")
                 return
 
         elif m["is_youtube_url"](url):
             try:
                 tracks = m["get_youtube_info"](url)
             except Exception as e:
-                log_to_client(f"❌ Error YouTube: {e}")
+                log(f"❌ Error YouTube: {e}")
                 return
 
         else:
@@ -234,7 +262,7 @@ def _download_worker(url: str, dest: str):
             }]
 
         if not tracks:
-            log_to_client("❌ No se encontraron canciones.")
+            log("❌ No se encontraron canciones.")
             return
 
         total = len(tracks)
@@ -242,11 +270,11 @@ def _download_worker(url: str, dest: str):
         fail = 0
 
         for i, track in enumerate(tracks, 1):
-            if state["stop_requested"]:
-                log_to_client(f"\n⛔ Detenida por el usuario ({i-1}/{total}).")
+            if sess["stop_requested"]:
+                log(f"\n⛔ Detenida por el usuario ({i-1}/{total}).")
                 break
 
-            socketio.emit("progress", {"current": i, "total": total})
+            socketio.emit("progress", {"current": i, "total": total}, to=sid)
 
             result = m["download_track"](
                 title=track.get("title", "Unknown"),
@@ -260,26 +288,18 @@ def _download_worker(url: str, dest: str):
                 deezer_arl=m["DEEZER_ARL"],
                 slskd_api_url=m["SLSKD_API_URL"],
                 slskd_api_key=m["SLSKD_API_KEY"],
-                log_callback=log_to_client,
+                log_callback=log,
             )
 
             if result:
                 success += 1
                 session_files.append(result)
-                import shutil
-                dst_folder = state["dest_folder"]
-                os.makedirs(dst_folder, exist_ok=True)
-                dst_path = os.path.join(dst_folder, os.path.basename(result))
-                try:
-                    shutil.copy2(result, dst_path)
-                except Exception:
-                    pass
                 filename = os.path.basename(result)
-                socketio.emit("file_ready", {"filename": filename})
+                socketio.emit("file_ready", {"filename": filename}, to=sid)
             else:
                 fail += 1
 
-        log_to_client(
+        log(
             f"\n🏁 Listo — ✅ {success}/{total}"
             + (f" ❌ {fail}" if fail else "")
         )
@@ -288,44 +308,38 @@ def _download_worker(url: str, dest: str):
             socketio.emit("batch_complete", {
                 "count": 1,
                 "single_filename": os.path.basename(session_files[0]),
-            })
+            }, to=sid)
         elif success > 1 and session_files:
             zip_name = f"music_{int(time.time())}.zip"
-            zip_path = os.path.join(SERVER_TEMP, zip_name)
+            zip_path = os.path.join(dest, zip_name)
             try:
                 with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
                     for fpath in session_files:
                         zf.write(fpath, os.path.basename(fpath))
-                log_to_client(f"📦 ZIP creado con {success} canciones")
+                log(f"📦 ZIP creado con {success} canciones")
                 socketio.emit("batch_complete", {
                     "count": success,
                     "zip_filename": zip_name,
-                })
+                }, to=sid)
             except Exception as ze:
-                log_to_client(f"⚠️ No se pudo crear ZIP: {ze}")
+                log(f"⚠️ No se pudo crear ZIP: {ze}")
 
     except Exception as e:
-        log_to_client(f"\n❌ Error crítico: {e}")
+        log(f"\n❌ Error crítico: {e}")
         import traceback
-        log_to_client(traceback.format_exc())
+        log(traceback.format_exc())
 
     finally:
-        state["downloading"] = False
-        state["stop_requested"] = False
-        socketio.emit("download_finished")
+        sess["downloading"] = False
+        sess["stop_requested"] = False
+        socketio.emit("download_finished", to=sid)
 
 
 # ── Pre-cargar módulos pesados en background ───────────────────────
 threading.Thread(target=_load_heavy, daemon=True).start()
 
-# ── Listar rutas registradas ───────────────────────────────────────
-print("[boot] Registered routes:", flush=True)
-for rule in app.url_map.iter_rules():
-    print(f"  {rule.methods} {rule.rule}", flush=True)
-print(f"[boot] Total routes: {len(list(app.url_map.iter_rules()))}", flush=True)
-
 # ── Punto de entrada ──────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    print(f"[boot] Starting socketio.run on 0.0.0.0:{port} ...", flush=True)
+    print(f"[boot] Starting on 0.0.0.0:{port} ...", flush=True)
     socketio.run(app, host="0.0.0.0", port=port, debug=False, allow_unsafe_werkzeug=True)
