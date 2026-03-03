@@ -7,16 +7,14 @@
 # ============================================================================
 
 import os
-import secrets
 import socket
 import tempfile
 import threading
 import time
 import zipfile
 from pathlib import Path
-from functools import wraps
 
-from flask import Flask, render_template, request, jsonify, send_from_directory, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, send_from_directory
 from flask_socketio import SocketIO
 
 from config import (
@@ -25,14 +23,13 @@ from config import (
     DEEZER_ARL,
     SLSKD_API_URL,
     SLSKD_API_KEY,
-    APP_PASSWORD,
 )
 from spotify_utils import is_spotify_url, get_tracks_from_spotify_url
 from downloader import download_track, is_youtube_url, get_youtube_info
 
 # ── Flask App ──────────────────────────────────────────────────────
 app = Flask(__name__, template_folder="templates", static_folder="static")
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", secrets.token_hex(32))
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "music-dl-2024")
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 # ── Estado global ──────────────────────────────────────────────────
@@ -67,47 +64,13 @@ def log_to_client(message: str):
     socketio.emit("log", {"message": message})
 
 
-# ── Autenticación ──────────────────────────────────────────────────
-def login_required(f):
-    """Decorador que protege rutas — requiere sesión autenticada."""
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not session.get("authenticated"):
-            if request.is_json or request.path.startswith("/api/"):
-                return jsonify({"ok": False, "error": "No autenticado"}), 401
-            return redirect(url_for("login_page"))
-        return f(*args, **kwargs)
-    return decorated
-
-
 # ── Rutas ──────────────────────────────────────────────────────────
-@app.route("/login", methods=["GET", "POST"])
-def login_page():
-    error = None
-    if request.method == "POST":
-        password = request.form.get("password", "")
-        if password == APP_PASSWORD:
-            session["authenticated"] = True
-            session.permanent = True
-            return redirect(url_for("index"))
-        error = "Contraseña incorrecta"
-    return render_template("login.html", error=error)
-
-
-@app.route("/logout")
-def logout():
-    session.clear()
-    return redirect(url_for("login_page"))
-
-
 @app.route("/")
-@login_required
 def index():
     return render_template("index.html")
 
 
 @app.route("/api/status")
-@login_required
 def api_status():
     return jsonify({
         "downloading": state["downloading"],
@@ -116,7 +79,6 @@ def api_status():
 
 
 @app.route("/api/set_folder", methods=["POST"])
-@login_required
 def api_set_folder():
     data = request.json or {}
     folder = data.get("folder", "").strip()
@@ -127,7 +89,6 @@ def api_set_folder():
 
 
 @app.route("/api/download", methods=["POST"])
-@login_required
 def api_download():
     if state["downloading"]:
         return jsonify({"ok": False, "error": "Ya hay una descarga en curso."}), 409
@@ -163,7 +124,6 @@ def api_download():
 
 
 @app.route("/api/stop", methods=["POST"])
-@login_required
 def api_stop():
     if state["downloading"]:
         state["stop_requested"] = True
@@ -173,7 +133,6 @@ def api_stop():
 
 
 @app.route("/api/download_file/<path:filename>")
-@login_required
 def api_download_file(filename):
     """Permite descargar un archivo al dispositivo."""
     for folder in [state["dest_folder"], SERVER_TEMP]:
@@ -184,7 +143,6 @@ def api_download_file(filename):
 
 
 @app.route("/api/download_zip/<path:filename>")
-@login_required
 def api_download_zip(filename):
     """Sirve un ZIP generado con todas las canciones descargadas."""
     full_path = os.path.join(SERVER_TEMP, filename)
