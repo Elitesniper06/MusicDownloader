@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Entorno virtual
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Sistema
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ⚠️ NUNCA subir config.py con credenciales reales
+# En producción usa variables de entorno
+# config.py
+
+# Archivos temporales de descarga
+*.flac
+*.mp3
+*.m4a
+*.zip
+*.wav
+*.opus
+*.ogg
+*.webm

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0f0f1a">
+    <title>🔐 Music Downloader — Login</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg: #0f0f1a;
+            --card: #1a1a2e;
+            --border: #2a2a44;
+            --text: #e0e0e0;
+            --muted: #888899;
+            --green: #1DB954;
+            --green-hover: #1ed760;
+            --red: #cc3333;
+        }
+        html, body {
+            height: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .login-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 32px 28px;
+            width: 90%;
+            max-width: 380px;
+            text-align: center;
+        }
+        .login-card h1 {
+            font-size: 1.5rem;
+            margin-bottom: 6px;
+            background: linear-gradient(135deg, var(--green), #17d68a);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .login-card p {
+            color: var(--muted);
+            font-size: 0.82rem;
+            margin-bottom: 24px;
+        }
+        .login-input {
+            width: 100%;
+            background: var(--bg);
+            border: 1.5px solid var(--border);
+            border-radius: 10px;
+            color: var(--text);
+            font-size: 1rem;
+            padding: 14px 16px;
+            outline: none;
+            margin-bottom: 16px;
+            transition: border-color 0.2s;
+            text-align: center;
+            letter-spacing: 2px;
+        }
+        .login-input:focus { border-color: var(--green); }
+        .login-input::placeholder { color: #555; letter-spacing: normal; }
+        .login-btn {
+            width: 100%;
+            background: var(--green);
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            padding: 14px;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+        }
+        .login-btn:hover { background: var(--green-hover); transform: translateY(-1px); }
+        .login-btn:active { transform: translateY(0); }
+        .error-msg {
+            background: rgba(204, 51, 51, 0.15);
+            border: 1px solid var(--red);
+            color: #ff6666;
+            border-radius: 8px;
+            padding: 10px;
+            font-size: 0.82rem;
+            margin-bottom: 16px;
+        }
+        .lock-icon { font-size: 2.5rem; margin-bottom: 12px; }
+    </style>
+</head>
+<body>
+    <form class="login-card" method="POST" action="/login">
+        <div class="lock-icon">🔐</div>
+        <h1>Music Downloader</h1>
+        <p>Introduce la contraseña para acceder</p>
+
+        {% if error %}
+        <div class="error-msg">{{ error }}</div>
+        {% endif %}
+
+        <input type="password" name="password" class="login-input"
+               placeholder="Contraseña" autofocus autocomplete="current-password">
+        <button type="submit" class="login-btn">🔓 ENTRAR</button>
+    </form>
+</body>
+</html>

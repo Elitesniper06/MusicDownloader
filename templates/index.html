@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0f0f1a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>🎵 Music Downloader Pro</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+        /* ── Reset & Base ─────────────────────────────────── */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #0f0f1a;
+            --card: #1a1a2e;
+            --border: #2a2a44;
+            --text: #e0e0e0;
+            --muted: #888899;
+            --green: #1DB954;
+            --green-hover: #1ed760;
+            --red: #cc3333;
+            --red-hover: #ee4444;
+            --blue: #4488ff;
+        }
+
+        html, body {
+            height: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            overflow-x: hidden;
+        }
+
+        /* ── App Container ────────────────────────────────── */
+        .app {
+            max-width: 700px;
+            margin: 0 auto;
+            padding: 20px 16px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ── Header ───────────────────────────────────────── */
+        .header { margin-bottom: 20px; }
+        .header h1 {
+            font-size: 1.6rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--green), #17d68a);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .header p {
+            color: var(--muted);
+            font-size: 0.85rem;
+            margin-top: 4px;
+        }
+
+        /* ── Card ─────────────────────────────────────────── */
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+
+        .card-label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
+
+        /* ── Input ────────────────────────────────────────── */
+        .url-input {
+            width: 100%;
+            background: var(--bg);
+            border: 1.5px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 1rem;
+            padding: 12px 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .url-input:focus {
+            border-color: var(--green);
+        }
+        .url-input::placeholder {
+            color: #555;
+        }
+
+        /* ── Folder ───────────────────────────────────────── */
+        .folder-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .folder-path {
+            flex: 1;
+            font-size: 0.8rem;
+            color: var(--green);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .folder-btn {
+            background: var(--border);
+            border: none;
+            color: var(--text);
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.2s;
+        }
+        .folder-btn:hover { background: #3a3a55; }
+
+        /* ── Buttons ──────────────────────────────────────── */
+        .btn-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        .btn {
+            flex: 1;
+            border: none;
+            border-radius: 10px;
+            padding: 14px 20px;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .btn-download {
+            background: var(--green);
+            color: #fff;
+        }
+        .btn-download:hover:not(:disabled) { background: var(--green-hover); transform: translateY(-1px); }
+        .btn-download:active:not(:disabled) { transform: translateY(0); }
+
+        .btn-stop {
+            background: var(--red);
+            color: #fff;
+            flex: 0 0 auto;
+            width: 120px;
+        }
+        .btn-stop:hover:not(:disabled) { background: var(--red-hover); }
+
+        /* ── Progress ─────────────────────────────────────── */
+        .progress-wrap {
+            height: 6px;
+            background: var(--border);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 12px;
+            display: none;
+        }
+        .progress-wrap.active { display: block; }
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--green), #17d68a);
+            border-radius: 3px;
+            width: 0%;
+            transition: width 0.4s ease;
+        }
+        .progress-bar.indeterminate {
+            width: 30%;
+            animation: indeterminate 1.5s infinite ease-in-out;
+        }
+        @keyframes indeterminate {
+            0%   { transform: translateX(-100%); }
+            100% { transform: translateX(400%); }
+        }
+
+        /* ── Log ──────────────────────────────────────────── */
+        .log-container {
+            flex: 1;
+            min-height: 200px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow-y: auto;
+            padding: 12px;
+            font-family: 'Consolas', 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.78rem;
+            line-height: 1.5;
+            scroll-behavior: smooth;
+        }
+        .log-line { color: var(--text); word-break: break-word; }
+        .log-line.error { color: #ff6666; }
+        .log-line.success { color: var(--green); }
+        .log-line.warn { color: #ffaa33; }
+
+        /* ── Footer ───────────────────────────────────────── */
+        .footer {
+            text-align: center;
+            font-size: 0.7rem;
+            color: #444;
+            padding: 10px 0;
+        }
+
+        /* ── Responsive ───────────────────────────────────── */
+        @media (max-width: 480px) {
+            .app { padding: 12px 10px; }
+            .header h1 { font-size: 1.3rem; }
+            .btn { padding: 12px 14px; font-size: 0.9rem; }
+            .btn-stop { width: 100px; }
+            .url-input { font-size: 0.95rem; padding: 10px 12px; }
+        }
+
+        /* ── Scrollbar ────────────────────────────────────── */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #444; }
+
+        /* ── Status dot ───────────────────────────────────── */
+        .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--green);
+            margin-right: 6px;
+            animation: pulse 2s infinite;
+        }
+        .status-dot.idle { background: var(--muted); animation: none; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+
+    </style>
+</head>
+<body>
+    <div class="app">
+        <!-- Header -->
+        <div class="header">
+            <h1>🎵 Music Downloader Pro</h1>
+            <p><span class="status-dot idle" id="statusDot"></span>
+               <span id="statusText">Listo para descargar</span></p>
+        </div>
+
+            <!-- URL Input -->
+            <div class="card">
+                <div class="card-label">🔗 URL</div>
+                <input type="url" class="url-input" id="urlInput"
+                       placeholder="Pega aquí el link de Spotify, YouTube..."
+                       autocomplete="off" spellcheck="false">
+            </div>
+
+            <!-- Buttons -->
+            <div class="btn-row">
+                <button class="btn btn-download" id="btnDownload" onclick="startDownload()">
+                    ⬇️ DESCARGAR
+                </button>
+                <button class="btn btn-stop" id="btnStop" onclick="stopDownload()" disabled>
+                    ⏹ PARAR
+                </button>
+            </div>
+
+            <!-- Progress -->
+            <div class="progress-wrap" id="progressWrap">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+
+            <!-- Log -->
+            <div class="log-container" id="logContainer">
+                <div class="log-line">✅ Listo. Pega una URL y pulsa DESCARGAR.</div>
+            </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            Plan A: FLAC (Deezer) → Plan B: Mejor calidad (yt-dlp)
+        </div>
+    </div>
+
+    <script>
+        // ── SocketIO ──────────────────────────────────────────
+        const socket = io();
+        const logContainer = document.getElementById('logContainer');
+        const progressWrap = document.getElementById('progressWrap');
+        const progressBar = document.getElementById('progressBar');
+        const btnDownload = document.getElementById('btnDownload');
+        const btnStop = document.getElementById('btnStop');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const urlInput = document.getElementById('urlInput');
+
+        let isDownloading = false;
+
+        function clearLog() {
+            logContainer.innerHTML = '';
+        }
+
+        // ── Log ───────────────────────────────────────────────
+        function addLog(msg) {
+            const line = document.createElement('div');
+            line.className = 'log-line';
+            if (msg.includes('❌') || msg.includes('Error')) line.className += ' error';
+            else if (msg.includes('✅') || msg.includes('🏁')) line.className += ' success';
+            else if (msg.includes('⚠️') || msg.includes('⛔')) line.className += ' warn';
+            line.textContent = msg;
+            logContainer.appendChild(line);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        socket.on('log', (data) => addLog(data.message));
+
+        socket.on('download_started', () => {
+            isDownloading = true;
+            clearLog();
+            updateUI();
+            progressWrap.classList.add('active');
+            progressBar.classList.add('indeterminate');
+            progressBar.style.width = '30%';
+        });
+
+        socket.on('progress', (data) => {
+            progressBar.classList.remove('indeterminate');
+            const pct = Math.round((data.current / data.total) * 100);
+            progressBar.style.width = pct + '%';
+            statusText.textContent = `Descargando ${data.current}/${data.total}...`;
+        });
+
+        socket.on('download_finished', () => {
+            isDownloading = false;
+            updateUI();
+            progressWrap.classList.remove('active');
+            progressBar.style.width = '0%';
+            progressBar.classList.remove('indeterminate');
+        });
+
+        // Cuando un archivo está listo → descargarlo
+        socket.on('file_ready', async (data) => {
+            if (!data.filename) return;
+            // No descargar individualmente, esperar batch_complete
+        });
+
+        // Cuando acaba la sesión, descargar todo junto
+        socket.on('batch_complete', (data) => {
+            if (data.count === 1 && data.single_filename) {
+                addLog('📲 Descargando: ' + data.single_filename);
+                triggerDownload('/api/download_file/' + encodeURIComponent(data.single_filename), data.single_filename);
+            } else if (data.zip_filename) {
+                addLog('📦 Descargando ZIP con ' + data.count + ' canciones...');
+                triggerDownload('/api/download_zip/' + encodeURIComponent(data.zip_filename), data.zip_filename);
+            }
+        });
+
+        function triggerDownload(url, filename) {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => a.remove(), 1000);
+        }
+
+        socket.on('disconnect', () => {
+            statusDot.className = 'status-dot idle';
+            statusText.textContent = 'Desconectado del servidor';
+        });
+
+        socket.on('connect', () => {
+            if (!isDownloading) {
+                statusDot.className = 'status-dot idle';
+                statusText.textContent = 'Listo para descargar';
+            }
+        });
+
+        // ── UI State ──────────────────────────────────────────
+        function updateUI() {
+            if (isDownloading) {
+                btnDownload.disabled = true;
+                btnDownload.innerHTML = '⏳ Descargando...';
+                btnStop.disabled = false;
+                statusDot.className = 'status-dot';
+                statusText.textContent = 'Descargando...';
+            } else {
+                btnDownload.disabled = false;
+                btnDownload.innerHTML = '⬇️ DESCARGAR';
+                btnStop.disabled = true;
+                btnStop.innerHTML = '⏹ PARAR';
+                statusDot.className = 'status-dot idle';
+                statusText.textContent = 'Listo para descargar';
+            }
+        }
+
+        // ── Actions ───────────────────────────────────────────
+        async function startDownload() {
+            const url = urlInput.value.trim();
+            if (!url) {
+                addLog('❌ Pega una URL antes de descargar.');
+                urlInput.focus();
+                return;
+            }
+
+            try {
+                const resp = await fetch('/api/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url, to_device: true }),
+                });
+                const data = await resp.json();
+                if (!data.ok) {
+                    addLog('❌ ' + data.error);
+                }
+            } catch (err) {
+                addLog('❌ Error de conexión: ' + err.message);
+            }
+        }
+
+        async function stopDownload() {
+            btnStop.disabled = true;
+            btnStop.innerHTML = '⏹ Parando...';
+            try {
+                await fetch('/api/stop', { method: 'POST' });
+            } catch (err) {
+                addLog('❌ Error: ' + err.message);
+            }
+        }
+
+        async function changeFolder() {}
+
+        // ── Enter key to download ─────────────────────────────
+        urlInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !isDownloading) startDownload();
+        });
+
+        // ── Init ──────────────────────────────────────────────
+        fetch('/api/status').then(r => r.json()).then(data => {
+            if (data.downloading) {
+                isDownloading = true;
+                updateUI();
+            }
+        });
+    </script>
+</body>
+</html>
