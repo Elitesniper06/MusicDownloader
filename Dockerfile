@@ -15,7 +15,8 @@ RUN pip install --no-cache-dir -r requirements-web.txt
 COPY . .
 
 # Puerto
+ENV PORT=10000
 EXPOSE 10000
 
-# Ejecutar con gunicorn + gevent para WebSocket
-CMD ["gunicorn", "--worker-class", "geventwebsocket.gunicorn.workers.GeventWebSocketWorker", "--workers", "1", "--bind", "0.0.0.0:10000", "--timeout", "300", "--log-level", "debug", "wsgi:app"]
+# Ejecutar directamente con Flask-SocketIO + eventlet
+CMD ["python", "web_app.py"]

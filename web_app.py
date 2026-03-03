@@ -6,6 +6,9 @@
 # Desde el móvil (misma WiFi):  http://<IP-del-PC>:5000
 # ============================================================================
 
+import eventlet
+eventlet.monkey_patch()
+
 import os
 import socket
 import tempfile
@@ -30,7 +33,7 @@ from downloader import download_track, is_youtube_url, get_youtube_info
 # ── Flask App ──────────────────────────────────────────────────────
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "music-dl-2024")
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
 
 # ── Estado global ──────────────────────────────────────────────────
 DEFAULT_FOLDER = str(Path.home() / "Music" / "MusicDownloader")
@@ -284,9 +287,6 @@ if __name__ == "__main__":
     print("=" * 55)
     print(f"  💻 PC:    http://localhost:{port}")
     print(f"  📱 Móvil: http://{local_ip}:{port}")
-    print(f"  🔐 Contraseña: {'(env APP_PASSWORD)' if os.environ.get('APP_PASSWORD') else APP_PASSWORD}")
     print("=" * 55)
-    print("  (Abre la URL del móvil en el navegador de tu teléfono)")
-    print("  (Ctrl+C para parar el servidor)\n")
 
-    socketio.run(app, host="0.0.0.0", port=port, debug=False, allow_unsafe_werkzeug=True)
+    socketio.run(app, host="0.0.0.0", port=port, debug=False)
