@@ -8,8 +8,8 @@ RUN apt-get update && \
 WORKDIR /app
 
 # Copiar requirements primero (cache de Docker)
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements-web.txt .
+RUN pip install --no-cache-dir -r requirements-web.txt
 
 # Copiar el resto del código
 COPY . .

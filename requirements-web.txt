@@ -1,0 +1,11 @@
+# Dependencias para deploy web (Render, etc.)
+yt-dlp>=2024.1.0
+spotipy>=2.23.0
+mutagen>=1.47.0
+requests>=2.31.0
+flask>=3.0.0
+flask-socketio>=5.3.0
+pycryptodome>=3.20.0
+gunicorn>=21.2.0
+gevent>=24.2.1
+gevent-websocket>=0.10.1
