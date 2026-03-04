@@ -45,33 +45,20 @@
             >
         </section>
 
-        <!-- Carpeta destino — botón que abre explorador nativo -->
-        <section class="field-card field-card--small">
+        <!-- Carpeta destino — File System Access API (funciona en Chrome/Edge) -->
+        <section id="folderSection" class="field-card field-card--small">
             <label class="field-card__label">📂&ensp;CARPETA DESTINO</label>
             <div class="folder-row">
                 <button id="browseFolderBtn" class="btn btn--folder" onclick="browseFolder()">
                     📁 Seleccionar Carpeta / Pendrive
                 </button>
-                <span id="folderStatus" class="folder-status">⚠ Ninguna carpeta seleccionada</span>
+                <span id="folderStatus" class="folder-status">⚠ Ninguna carpeta seleccionada — se descargarán al navegador</span>
                 <button id="clearFolderBtn" class="btn btn--danger-sm" onclick="clearFolder()" style="display:none;">✕</button>
             </div>
             <input type="hidden" id="destInput" value="">
-        </section>
-
-        <!-- Navegador para cookies YouTube -->
-        <section class="field-card field-card--small">
-            <label class="field-card__label">🍪&ensp;COOKIES YOUTUBE <span class="label-hint">(evita detección de bots)</span></label>
-            <div class="cookies-row">
-                <select id="browserSelect" class="field-card__select">
-                    <option value="">Sin cookies</option>
-                    <option value="chrome" selected>Chrome</option>
-                    <option value="edge">Edge</option>
-                    <option value="firefox">Firefox</option>
-                    <option value="brave">Brave</option>
-                    <option value="opera">Opera</option>
-                </select>
-                <span class="cookies-hint">Se leen automáticamente del navegador</span>
-            </div>
+            <p id="folderApiWarning" class="folder-api-warning" style="display:none;">
+                ⚠ Tu navegador no soporta selección de carpeta. Los archivos se descargarán normalmente.
+            </p>
         </section>
 
         <!-- Botones de acción -->

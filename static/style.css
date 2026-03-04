@@ -366,6 +366,21 @@ body {
     color: var(--text-dim);
 }
 
+.cookies-help {
+    margin-top: 8px;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+}
+.cookies-help a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px dashed rgba(0, 240, 255, .3);
+    transition: border-color .2s;
+}
+.cookies-help a:hover {
+    border-color: var(--accent);
+}
+
 /* ── Select de navegador ──────────────────────────────────────────── */
 .field-card__select {
     height: 38px;
@@ -577,4 +592,26 @@ body {
     .btn--primary { height: 48px; font-size: 0.85rem; }
     .log-box { height: 180px; font-size: 0.75rem; }
     .field-card__input { height: 42px; font-size: 0.85rem; }
+}
+
+/* ── Badge "Guardado" para archivos salvados via File System API ──── */
+.file-item__saved {
+    flex-shrink: 0;
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 0.75rem;
+    color: var(--success);
+    background: rgba(0, 255, 157, .08);
+    border: 1px solid rgba(0, 255, 157, .25);
+    padding: 6px 14px;
+    border-radius: 8px;
+    letter-spacing: 0.5px;
+}
+
+/* ── Aviso de API no soportada ────────────────────────────────────── */
+.folder-api-warning {
+    margin-top: 8px;
+    font-size: 0.72rem;
+    color: #D4AC0D;
+    font-family: var(--font-mono);
 }

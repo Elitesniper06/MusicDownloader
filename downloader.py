@@ -388,6 +388,12 @@ def plan_b_download(
             f":{_escape_metadata(title)}:%(meta_title)s",
             f":{_escape_metadata(artist)}:%(meta_artist)s",
         ],
+        # Clientes alternativos de YouTube para evitar detección de bots
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["mediaconnect", "web_creator", "default"],
+            }
+        },
     }
 
     # Indicar la ruta de FFmpeg si fue encontrada automáticamente
@@ -662,6 +668,11 @@ def get_youtube_info(url: str, cookies_file: str = "", cookies_from_browser: str
             "quiet": True,
             "no_warnings": True,
             "extract_flat": True,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["mediaconnect", "web_creator", "default"],
+                }
+            },
         }
         if _FFMPEG_PATH:
             ydl_opts["ffmpeg_location"] = _FFMPEG_PATH
@@ -684,6 +695,11 @@ def get_youtube_info(url: str, cookies_file: str = "", cookies_from_browser: str
             "quiet": True,
             "no_warnings": True,
             "noplaylist": True,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["mediaconnect", "web_creator", "default"],
+                }
+            },
         }
         if _FFMPEG_PATH:
             ydl_opts["ffmpeg_location"] = _FFMPEG_PATH

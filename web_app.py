@@ -65,6 +65,10 @@ from downloader import (
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2 MB máx. para uploads
 
+# ── Detectar si estamos en la nube (Render) o en local ──
+IS_RENDER = bool(os.environ.get("RENDER"))  # Render establece RENDER=true
+IS_LOCAL = not IS_RENDER
+
 # ── Asegurar que ffmpeg esté en el PATH (para Render) ──
 _ffmpeg_home = os.path.join(os.path.expanduser("~"), "ffmpeg")
 if os.path.isdir(_ffmpeg_home):
@@ -107,6 +111,18 @@ def health():
     })
 
 
+@app.route("/api/environment")
+def api_environment():
+    """
+    Informa al frontend si estamos en local o en la nube.
+    El JS usa esto para mostrar/ocultar controles apropiados.
+    """
+    return jsonify({
+        "is_local": IS_LOCAL,
+        "is_render": IS_RENDER,
+    })
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # RUTAS — API
 # ═══════════════════════════════════════════════════════════════════════
@@ -121,7 +137,6 @@ def api_start_download():
     data = request.get_json(force=True)
     url = (data.get("url") or "").strip()
     custom_dest = (data.get("dest_folder") or "").strip()
-    cookies_browser = (data.get("cookies_browser") or "").strip()
 
     if not url:
         return jsonify({"error": "Falta la URL"}), 400
@@ -148,7 +163,6 @@ def api_start_download():
         "created_at": time.time(),
         "stop_requested": False,  # Señal de parada
         "custom_dest": use_custom_dest,
-        "cookies_browser": cookies_browser,
     }
     _jobs[job_id] = job
 
@@ -174,45 +188,15 @@ def api_stop_download(job_id: str):
     return jsonify({"ok": True, "message": "Parada solicitada"})
 
 
-@app.route("/api/upload-cookies", methods=["POST"])
-def api_upload_cookies():
-    """
-    Sube un archivo cookies.txt (formato Netscape) para que yt-dlp
-    pueda autenticarse en YouTube y evitar la detección de bots.
-    """
-    if "file" not in request.files:
-        return jsonify({"error": "No se envió ningún archivo"}), 400
-
-    f = request.files["file"]
-    if not f.filename:
-        return jsonify({"error": "Archivo vacío"}), 400
-
-    f.save(COOKIES_FILE)
-    return jsonify({"ok": True, "message": "Cookies guardadas correctamente"})
-
-
-@app.route("/api/cookies-status")
-def api_cookies_status():
-    """Devuelve si hay un archivo de cookies guardado."""
-    exists = os.path.isfile(COOKIES_FILE)
-    return jsonify({"has_cookies": exists})
-
-
-@app.route("/api/delete-cookies", methods=["POST"])
-def api_delete_cookies():
-    """Elimina el archivo de cookies guardado."""
-    if os.path.isfile(COOKIES_FILE):
-        os.remove(COOKIES_FILE)
-    return jsonify({"ok": True})
-
-
 @app.route("/api/browse-folder", methods=["POST"])
 def api_browse_folder():
     """
     Abre el explorador de archivos nativo (tkinter) para seleccionar
     una carpeta. Solo funciona cuando el servidor corre en local.
-    Retorna: {"folder": "C:\\Users\\...\\Music"} o {"folder": ""}
     """
+    if IS_RENDER:
+        return jsonify({"folder": "", "error": "No disponible en la nube"}), 400
+
     selected = _open_folder_dialog()
     return jsonify({"folder": selected or ""})
 
@@ -348,9 +332,11 @@ def _download_worker(job: dict):
     url = job["url"]
     dest = job["folder"]
 
-    # Cookies: archivo subido o leer del navegador configurado
+    # Cookies: automáticas según entorno
     cookies_file = COOKIES_FILE if os.path.isfile(COOKIES_FILE) else ""
-    cookies_browser = job.get("cookies_browser", "")  # ej: "chrome", "firefox", "edge"
+    # En LOCAL: leer cookies del navegador automáticamente (zero-effort)
+    # En RENDER: extractor_args en downloader.py maneja YouTube sin cookies
+    cookies_browser = "chrome" if IS_LOCAL else ""
 
     def log(msg: str):
         q.put(msg)
