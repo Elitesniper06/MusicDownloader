@@ -29,80 +29,6 @@ except ImportError:
     MUTAGEN_AVAILABLE = False
 
 
-# ── Opciones anti-bot para yt-dlp en servidores ──────────────────
-_YTDLP_ANTIBOT = {
-    "extractor_args": {
-        "youtube": {
-            "player_client": ["mediaconnect", "tv_embedded", "web"],
-        }
-    },
-    "http_headers": {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/131.0.0.0 Safari/537.36"
-        ),
-        "Accept-Language": "en-US,en;q=0.9",
-    },
-}
-
-
-def _extract_youtube_id(url: str) -> Optional[str]:
-    """Extrae el video ID de una URL de YouTube."""
-    m = re.search(
-        r"(?:youtube\.com/watch\?v=|youtu\.be/|music\.youtube\.com/watch\?v=)([A-Za-z0-9_-]{11})",
-        url,
-    )
-    return m.group(1) if m else None
-
-
-def _get_youtube_meta_noembed(url: str) -> Optional[dict]:
-    """
-    Obtiene título y artista de un video de YouTube SIN yt-dlp,
-    usando la API oEmbed (gratuita, sin auth, sin bloqueos).
-    """
-    try:
-        oembed_url = f"https://www.youtube.com/oembed?url={url}&format=json"
-        resp = requests.get(oembed_url, timeout=10)
-        if resp.status_code != 200:
-            return None
-        data = resp.json()
-        full_title = data.get("title", "")
-        author = data.get("author_name", "")
-
-        # Intentar separar "Artista - Título" del título del video
-        if " - " in full_title:
-            parts = full_title.split(" - ", 1)
-            artist = parts[0].strip()
-            title = parts[1].strip()
-        else:
-            artist = author
-            title = full_title
-
-        # Limpiar sufijos comunes
-        title = re.sub(
-            r"\s*\(?(Official\s*(Music\s*)?Video|Audio|Lyric(s)?\s*Video|Visualizer|HD|HQ)\)?\s*$",
-            "", title, flags=re.IGNORECASE,
-        ).strip()
-        artist = re.sub(r"\s*-\s*Topic$", "", artist).strip()
-        artist = re.sub(r"VEVO$", "", artist).strip()
-
-        vid_id = _extract_youtube_id(url)
-        yt_url = f"https://www.youtube.com/watch?v={vid_id}" if vid_id else url
-
-        return {
-            "title": title or "Unknown",
-            "artist": artist or "Unknown Artist",
-            "album": "",
-            "track_number": 0,
-            "cover_url": f"https://i.ytimg.com/vi/{vid_id}/maxresdefault.jpg" if vid_id else "",
-            "isrc": None,
-            "youtube_url": yt_url,
-        }
-    except Exception:
-        return None
-
-
 def _find_ffmpeg_path() -> Optional[str]:
     """
     Busca la ruta de FFmpeg en el sistema.
@@ -434,8 +360,7 @@ def plan_b_download(
 
     # Opciones de yt-dlp para máxima calidad de audio
     ydl_opts = {
-        **_YTDLP_ANTIBOT,
-        "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
+        "format": "bestaudio/best",
         "outtmpl": output_template,
         "quiet": True,
         "no_warnings": False,
@@ -708,31 +633,18 @@ def get_youtube_info(url: str) -> list[dict]:
     """
     Extrae información de una URL de YouTube sin descargar.
     Devuelve lista de tracks con título y artista.
-
-    Estrategia:
-      1. Para videos individuales: usar oEmbed (gratis, sin bloqueo)
-      2. Para playlists: usar yt-dlp extract_flat
-      3. Fallback: yt-dlp completo
     """
-    # Detectar si es una playlist
+    if not YTDLP_AVAILABLE:
+        raise ImportError("yt-dlp no está instalado.")
+
+    # Detectar si es una playlist o un video individual
     is_playlist = bool(re.search(
         r"youtube\.com/playlist\?list=|&list=[A-Za-z0-9_-]{10,}",
         url,
     ))
 
-    if not is_playlist:
-        # ── Video individual: intentar oEmbed primero (no usa yt-dlp) ──
-        meta = _get_youtube_meta_noembed(url)
-        if meta:
-            return [meta]
-
-    # ── Playlists o fallback: usar yt-dlp ──
-    if not YTDLP_AVAILABLE:
-        raise ImportError("yt-dlp no está instalado.")
-
     if is_playlist:
         ydl_opts = {
-            **_YTDLP_ANTIBOT,
             "quiet": True,
             "no_warnings": True,
             "extract_flat": True,
@@ -749,9 +661,8 @@ def get_youtube_info(url: str) -> list[dict]:
                 tracks.append(_parse_yt_info(entry))
         return tracks
     else:
-        # Video individual — yt-dlp como último recurso
+        # Para videos individuales, extraer metadatos completos
         ydl_opts = {
-            **_YTDLP_ANTIBOT,
             "quiet": True,
             "no_warnings": True,
             "noplaylist": True,

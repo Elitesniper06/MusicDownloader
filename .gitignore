@@ -23,7 +23,6 @@ Thumbs.db
 desktop.ini
 
 # ⚠️ NUNCA subir config.py con credenciales reales
-# En producción usa variables de entorno
 # config.py
 
 # Archivos temporales de descarga
