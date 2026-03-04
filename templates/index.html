@@ -45,29 +45,32 @@
             >
         </section>
 
-        <!-- Carpeta destino (opcional) -->
+        <!-- Carpeta destino — botón que abre explorador nativo -->
         <section class="field-card field-card--small">
-            <label class="field-card__label">📂&ensp;CARPETA DESTINO <span class="label-hint">(vacío = descarga temporal)</span></label>
-            <input
-                type="text"
-                id="destInput"
-                class="field-card__input"
-                placeholder="C:\Música\Descargas  (ruta en el servidor)"
-                autocomplete="off"
-                spellcheck="false"
-            >
+            <label class="field-card__label">📂&ensp;CARPETA DESTINO</label>
+            <div class="folder-row">
+                <button id="browseFolderBtn" class="btn btn--folder" onclick="browseFolder()">
+                    📁 Seleccionar Carpeta / Pendrive
+                </button>
+                <span id="folderStatus" class="folder-status">⚠ Ninguna carpeta seleccionada</span>
+                <button id="clearFolderBtn" class="btn btn--danger-sm" onclick="clearFolder()" style="display:none;">✕</button>
+            </div>
+            <input type="hidden" id="destInput" value="">
         </section>
 
-        <!-- Cookies YouTube -->
+        <!-- Navegador para cookies YouTube -->
         <section class="field-card field-card--small">
             <label class="field-card__label">🍪&ensp;COOKIES YOUTUBE <span class="label-hint">(evita detección de bots)</span></label>
             <div class="cookies-row">
-                <label class="btn btn--upload" id="uploadCookiesBtn">
-                    <input type="file" id="cookiesFileInput" accept=".txt" hidden>
-                    📁 Subir cookies.txt
-                </label>
-                <span id="cookiesStatus" class="cookies-status">Sin cookies</span>
-                <button id="deleteCookiesBtn" class="btn btn--danger-sm" onclick="deleteCookies()" style="display:none;">✕</button>
+                <select id="browserSelect" class="field-card__select">
+                    <option value="">Sin cookies</option>
+                    <option value="chrome" selected>Chrome</option>
+                    <option value="edge">Edge</option>
+                    <option value="firefox">Firefox</option>
+                    <option value="brave">Brave</option>
+                    <option value="opera">Opera</option>
+                </select>
+                <span class="cookies-hint">Se leen automáticamente del navegador</span>
             </div>
         </section>
 

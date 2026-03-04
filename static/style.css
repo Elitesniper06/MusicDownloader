@@ -261,6 +261,34 @@ body {
     background: rgba(0, 240, 255, .06);
 }
 
+.btn--folder {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 40px;
+    font-size: 0.78rem;
+    font-family: var(--font-body);
+    font-weight: 700;
+    letter-spacing: 0;
+    background: linear-gradient(135deg, #1a5276, #1a3c5e);
+    color: var(--text);
+    border: 1px solid #2471a3;
+    padding: 0 18px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: border-color .2s, box-shadow .2s, background .2s;
+    white-space: nowrap;
+}
+.btn--folder:hover:not(:disabled) {
+    border-color: var(--accent);
+    box-shadow: 0 0 16px rgba(0, 240, 255, .15);
+    background: linear-gradient(135deg, #1f6d9b, #1a4d7a);
+}
+.btn--folder:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
 .btn--danger-sm {
     display: inline-flex;
     align-items: center;
@@ -297,6 +325,26 @@ body {
     letter-spacing: 0;
 }
 
+/* ── Fila de carpeta ──────────────────────────────────────────────── */
+.folder-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.folder-status {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: #D4AC0D;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.folder-status.active {
+    color: var(--success);
+}
+
 /* ── Fila de cookies ──────────────────────────────────────────────── */
 .cookies-row {
     display: flex;
@@ -310,6 +358,41 @@ body {
 }
 .cookies-status.active {
     color: var(--success);
+}
+
+.cookies-hint {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-dim);
+}
+
+/* ── Select de navegador ──────────────────────────────────────────── */
+.field-card__select {
+    height: 38px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--card);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 0.85rem;
+    outline: none;
+    cursor: pointer;
+    transition: border-color .25s;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236B7A99' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+    min-width: 140px;
+}
+.field-card__select:focus {
+    border-color: var(--accent);
+}
+.field-card__select option {
+    background: var(--card);
+    color: var(--text);
 }
 
 .btn--secondary {

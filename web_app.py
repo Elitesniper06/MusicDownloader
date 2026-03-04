@@ -121,6 +121,7 @@ def api_start_download():
     data = request.get_json(force=True)
     url = (data.get("url") or "").strip()
     custom_dest = (data.get("dest_folder") or "").strip()
+    cookies_browser = (data.get("cookies_browser") or "").strip()
 
     if not url:
         return jsonify({"error": "Falta la URL"}), 400
@@ -130,8 +131,7 @@ def api_start_download():
 
     # Carpeta destino: la personalizada (si es válida) o la temporal por defecto
     if custom_dest and os.path.isdir(custom_dest):
-        job_folder = os.path.join(custom_dest, f"MusicDL_{job_id}")
-        os.makedirs(job_folder, exist_ok=True)
+        job_folder = custom_dest
         use_custom_dest = True
     else:
         job_folder = os.path.join(DOWNLOADS_BASE, job_id)
@@ -148,6 +148,7 @@ def api_start_download():
         "created_at": time.time(),
         "stop_requested": False,  # Señal de parada
         "custom_dest": use_custom_dest,
+        "cookies_browser": cookies_browser,
     }
     _jobs[job_id] = job
 
@@ -203,6 +204,43 @@ def api_delete_cookies():
     if os.path.isfile(COOKIES_FILE):
         os.remove(COOKIES_FILE)
     return jsonify({"ok": True})
+
+
+@app.route("/api/browse-folder", methods=["POST"])
+def api_browse_folder():
+    """
+    Abre el explorador de archivos nativo (tkinter) para seleccionar
+    una carpeta. Solo funciona cuando el servidor corre en local.
+    Retorna: {"folder": "C:\\Users\\...\\Music"} o {"folder": ""}
+    """
+    selected = _open_folder_dialog()
+    return jsonify({"folder": selected or ""})
+
+
+def _open_folder_dialog() -> str:
+    """Abre un diálogo nativo de selección de carpeta usando tkinter."""
+    result = {"path": ""}
+
+    def _run():
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()            # Ocultar ventana principal
+            root.attributes("-topmost", True)  # Traer al frente
+            folder = filedialog.askdirectory(
+                title="Seleccionar Carpeta / Pendrive",
+            )
+            result["path"] = folder or ""
+            root.destroy()
+        except Exception:
+            result["path"] = ""
+
+    # tkinter necesita correr en un hilo separado si Flask corre en otro
+    t = threading.Thread(target=_run)
+    t.start()
+    t.join(timeout=120)  # Máximo 2 minutos para que el usuario elija
+    return result["path"]
 
 
 @app.route("/api/stream/<job_id>")
@@ -310,8 +348,9 @@ def _download_worker(job: dict):
     url = job["url"]
     dest = job["folder"]
 
-    # Archivo de cookies (si existe)
-    cookies = COOKIES_FILE if os.path.isfile(COOKIES_FILE) else ""
+    # Cookies: archivo subido o leer del navegador configurado
+    cookies_file = COOKIES_FILE if os.path.isfile(COOKIES_FILE) else ""
+    cookies_browser = job.get("cookies_browser", "")  # ej: "chrome", "firefox", "edge"
 
     def log(msg: str):
         q.put(msg)
@@ -344,7 +383,7 @@ def _download_worker(job: dict):
         elif is_youtube_url(url):
             log("🔗 Enlace de YouTube detectado…")
             try:
-                tracks = get_youtube_info(url, cookies_file=cookies)
+                tracks = get_youtube_info(url, cookies_file=cookies_file, cookies_from_browser=cookies_browser)
             except Exception as e:
                 log(f"❌ Error YouTube: {e}")
                 tracks = [{
@@ -404,7 +443,8 @@ def _download_worker(job: dict):
                     slskd_api_url=SLSKD_API_URL,
                     slskd_api_key=SLSKD_API_KEY,
                     log_callback=log,
-                    cookies_file=cookies,
+                    cookies_file=cookies_file,
+                    cookies_from_browser=cookies_browser,
                 )
                 if result and os.path.exists(result):
                     job["files"].append(result)

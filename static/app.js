@@ -1,36 +1,65 @@
 /* ═══════════════════════════════════════════════════════════════════════
    app.js — Frontend para Music Downloader Web
    Maneja:  inicio de descarga → SSE en tiempo real → lista de archivos
-            parar descarga, subir cookies, carpeta destino
+            parar descarga, cookies desde navegador, selector carpeta nativo
    ═══════════════════════════════════════════════════════════════════════ */
 
 let currentJobId = null;
 let eventSource  = null;
 
 // ── Elementos del DOM ──────────────────────────────────────────────────
-const urlInput         = document.getElementById("urlInput");
-const destInput        = document.getElementById("destInput");
-const downloadBtn      = document.getElementById("downloadBtn");
-const stopBtn          = document.getElementById("stopBtn");
-const progressTrack    = document.getElementById("progressTrack");
-const logBox           = document.getElementById("logBox");
-const filesSection     = document.getElementById("filesSection");
-const filesList        = document.getElementById("filesList");
-const zipBtn           = document.getElementById("zipBtn");
-const cookiesFileInput = document.getElementById("cookiesFileInput");
-const cookiesStatus    = document.getElementById("cookiesStatus");
-const deleteCookiesBtn = document.getElementById("deleteCookiesBtn");
+const urlInput        = document.getElementById("urlInput");
+const destInput       = document.getElementById("destInput");
+const downloadBtn     = document.getElementById("downloadBtn");
+const stopBtn         = document.getElementById("stopBtn");
+const progressTrack   = document.getElementById("progressTrack");
+const logBox          = document.getElementById("logBox");
+const filesSection    = document.getElementById("filesSection");
+const filesList       = document.getElementById("filesList");
+const zipBtn          = document.getElementById("zipBtn");
+const browseFolderBtn = document.getElementById("browseFolderBtn");
+const folderStatus    = document.getElementById("folderStatus");
+const clearFolderBtn  = document.getElementById("clearFolderBtn");
+const browserSelect   = document.getElementById("browserSelect");
 
 // Permitir Enter para descargar
 urlInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") startDownload();
 });
 
-// Listener para subir cookies al seleccionar archivo
-cookiesFileInput.addEventListener("change", uploadCookies);
 
-// Comprobar estado de cookies al cargar
-checkCookiesStatus();
+// ═══════════════════════════════════════════════════════════════════════
+// SELECTOR DE CARPETA NATIVO
+// ═══════════════════════════════════════════════════════════════════════
+
+async function browseFolder() {
+    browseFolderBtn.disabled = true;
+    browseFolderBtn.textContent = "📁 Abriendo explorador…";
+
+    try {
+        const resp = await fetch("/api/browse-folder", { method: "POST" });
+        const data = await resp.json();
+
+        if (data.folder) {
+            destInput.value = data.folder;
+            folderStatus.textContent = data.folder;
+            folderStatus.className = "folder-status active";
+            clearFolderBtn.style.display = "inline-flex";
+        }
+    } catch (e) {
+        addLog(`❌ Error abriendo explorador: ${e.message}`, "error");
+    }
+
+    browseFolderBtn.disabled = false;
+    browseFolderBtn.textContent = "📁 Seleccionar Carpeta / Pendrive";
+}
+
+function clearFolder() {
+    destInput.value = "";
+    folderStatus.textContent = "⚠ Ninguna carpeta seleccionada";
+    folderStatus.className = "folder-status";
+    clearFolderBtn.style.display = "none";
+}
 
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -52,6 +81,9 @@ async function startDownload() {
     const body = { url };
     const dest = destInput.value.trim();
     if (dest) body.dest_folder = dest;
+
+    const browser = browserSelect.value;
+    if (browser) body.cookies_browser = browser;
 
     try {
         const resp = await fetch("/api/download", {
@@ -93,68 +125,6 @@ async function stopDownload() {
         stopBtn.disabled = true;
     } catch (e) {
         addLog(`❌ Error al intentar parar: ${e.message}`, "error");
-    }
-}
-
-
-// ═══════════════════════════════════════════════════════════════════════
-// COOKIES — SUBIR / ELIMINAR / COMPROBAR
-// ═══════════════════════════════════════════════════════════════════════
-
-async function uploadCookies() {
-    const file = cookiesFileInput.files[0];
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-        const resp = await fetch("/api/upload-cookies", { method: "POST", body: formData });
-        const data = await resp.json();
-
-        if (resp.ok) {
-            setCookiesUI(true);
-            addLog("🍪 Cookies subidas correctamente.", "accent");
-        } else {
-            addLog(`❌ Error subiendo cookies: ${data.error}`, "error");
-        }
-    } catch (e) {
-        addLog(`❌ Error de conexión: ${e.message}`, "error");
-    }
-
-    // Limpiar input para poder volver a subir el mismo archivo
-    cookiesFileInput.value = "";
-}
-
-async function deleteCookies() {
-    try {
-        await fetch("/api/delete-cookies", { method: "POST" });
-        setCookiesUI(false);
-        addLog("🗑️ Cookies eliminadas.", "dim");
-    } catch (e) {
-        addLog(`❌ Error: ${e.message}`, "error");
-    }
-}
-
-async function checkCookiesStatus() {
-    try {
-        const resp = await fetch("/api/cookies-status");
-        const data = await resp.json();
-        setCookiesUI(data.has_cookies);
-    } catch (e) {
-        // Silenciar — no es crítico
-    }
-}
-
-function setCookiesUI(hasCookies) {
-    if (hasCookies) {
-        cookiesStatus.textContent = "✅ Cookies cargadas";
-        cookiesStatus.classList.add("active");
-        deleteCookiesBtn.style.display = "inline-flex";
-    } else {
-        cookiesStatus.textContent = "Sin cookies";
-        cookiesStatus.classList.remove("active");
-        deleteCookiesBtn.style.display = "none";
     }
 }
 
