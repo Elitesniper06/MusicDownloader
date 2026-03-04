@@ -1,24 +1,36 @@
 /* ═══════════════════════════════════════════════════════════════════════
    app.js — Frontend para Music Downloader Web
    Maneja:  inicio de descarga → SSE en tiempo real → lista de archivos
+            parar descarga, subir cookies, carpeta destino
    ═══════════════════════════════════════════════════════════════════════ */
 
 let currentJobId = null;
 let eventSource  = null;
 
 // ── Elementos del DOM ──────────────────────────────────────────────────
-const urlInput      = document.getElementById("urlInput");
-const downloadBtn   = document.getElementById("downloadBtn");
-const progressTrack = document.getElementById("progressTrack");
-const logBox        = document.getElementById("logBox");
-const filesSection  = document.getElementById("filesSection");
-const filesList     = document.getElementById("filesList");
-const zipBtn        = document.getElementById("zipBtn");
+const urlInput         = document.getElementById("urlInput");
+const destInput        = document.getElementById("destInput");
+const downloadBtn      = document.getElementById("downloadBtn");
+const stopBtn          = document.getElementById("stopBtn");
+const progressTrack    = document.getElementById("progressTrack");
+const logBox           = document.getElementById("logBox");
+const filesSection     = document.getElementById("filesSection");
+const filesList        = document.getElementById("filesList");
+const zipBtn           = document.getElementById("zipBtn");
+const cookiesFileInput = document.getElementById("cookiesFileInput");
+const cookiesStatus    = document.getElementById("cookiesStatus");
+const deleteCookiesBtn = document.getElementById("deleteCookiesBtn");
 
 // Permitir Enter para descargar
 urlInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") startDownload();
 });
+
+// Listener para subir cookies al seleccionar archivo
+cookiesFileInput.addEventListener("change", uploadCookies);
+
+// Comprobar estado de cookies al cargar
+checkCookiesStatus();
 
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -37,11 +49,15 @@ async function startDownload() {
     hideFiles();
     setLoading(true);
 
+    const body = { url };
+    const dest = destInput.value.trim();
+    if (dest) body.dest_folder = dest;
+
     try {
         const resp = await fetch("/api/download", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url }),
+            body: JSON.stringify(body),
         });
 
         if (!resp.ok) {
@@ -65,6 +81,85 @@ async function startDownload() {
 
 
 // ═══════════════════════════════════════════════════════════════════════
+// DETENER DESCARGA
+// ═══════════════════════════════════════════════════════════════════════
+
+async function stopDownload() {
+    if (!currentJobId) return;
+
+    try {
+        await fetch(`/api/stop/${currentJobId}`, { method: "POST" });
+        addLog("⛔ Solicitando parada…", "accent");
+        stopBtn.disabled = true;
+    } catch (e) {
+        addLog(`❌ Error al intentar parar: ${e.message}`, "error");
+    }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// COOKIES — SUBIR / ELIMINAR / COMPROBAR
+// ═══════════════════════════════════════════════════════════════════════
+
+async function uploadCookies() {
+    const file = cookiesFileInput.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+        const resp = await fetch("/api/upload-cookies", { method: "POST", body: formData });
+        const data = await resp.json();
+
+        if (resp.ok) {
+            setCookiesUI(true);
+            addLog("🍪 Cookies subidas correctamente.", "accent");
+        } else {
+            addLog(`❌ Error subiendo cookies: ${data.error}`, "error");
+        }
+    } catch (e) {
+        addLog(`❌ Error de conexión: ${e.message}`, "error");
+    }
+
+    // Limpiar input para poder volver a subir el mismo archivo
+    cookiesFileInput.value = "";
+}
+
+async function deleteCookies() {
+    try {
+        await fetch("/api/delete-cookies", { method: "POST" });
+        setCookiesUI(false);
+        addLog("🗑️ Cookies eliminadas.", "dim");
+    } catch (e) {
+        addLog(`❌ Error: ${e.message}`, "error");
+    }
+}
+
+async function checkCookiesStatus() {
+    try {
+        const resp = await fetch("/api/cookies-status");
+        const data = await resp.json();
+        setCookiesUI(data.has_cookies);
+    } catch (e) {
+        // Silenciar — no es crítico
+    }
+}
+
+function setCookiesUI(hasCookies) {
+    if (hasCookies) {
+        cookiesStatus.textContent = "✅ Cookies cargadas";
+        cookiesStatus.classList.add("active");
+        deleteCookiesBtn.style.display = "inline-flex";
+    } else {
+        cookiesStatus.textContent = "Sin cookies";
+        cookiesStatus.classList.remove("active");
+        deleteCookiesBtn.style.display = "none";
+    }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
 // SSE — RECIBIR LOG EN TIEMPO REAL
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -78,7 +173,7 @@ function connectSSE(jobId) {
         // Detectar tipo de línea para colorear
         if (text.includes("❌") || text.includes("Error")) {
             addLog(text, "error");
-        } else if (text.includes("──") || text.includes("🔗") || text.includes("📋")) {
+        } else if (text.includes("──") || text.includes("🔗") || text.includes("📋") || text.includes("⛔")) {
             addLog(text, "accent");
         } else {
             addLog(text);
@@ -191,10 +286,13 @@ function setLoading(loading) {
         downloadBtn.disabled = true;
         downloadBtn.innerHTML = '<span class="btn__icon">⏳</span> D E S C A R G A N D O …';
         progressTrack.classList.add("active");
+        stopBtn.style.display = "inline-flex";
+        stopBtn.disabled = false;
     } else {
         downloadBtn.disabled = false;
         downloadBtn.innerHTML = '<span class="btn__icon">⬇</span> D E S C A R G A R';
         progressTrack.classList.remove("active");
+        stopBtn.style.display = "none";
     }
 }
 

@@ -45,10 +45,39 @@
             >
         </section>
 
+        <!-- Carpeta destino (opcional) -->
+        <section class="field-card field-card--small">
+            <label class="field-card__label">📂&ensp;CARPETA DESTINO <span class="label-hint">(vacío = descarga temporal)</span></label>
+            <input
+                type="text"
+                id="destInput"
+                class="field-card__input"
+                placeholder="C:\Música\Descargas  (ruta en el servidor)"
+                autocomplete="off"
+                spellcheck="false"
+            >
+        </section>
+
+        <!-- Cookies YouTube -->
+        <section class="field-card field-card--small">
+            <label class="field-card__label">🍪&ensp;COOKIES YOUTUBE <span class="label-hint">(evita detección de bots)</span></label>
+            <div class="cookies-row">
+                <label class="btn btn--upload" id="uploadCookiesBtn">
+                    <input type="file" id="cookiesFileInput" accept=".txt" hidden>
+                    📁 Subir cookies.txt
+                </label>
+                <span id="cookiesStatus" class="cookies-status">Sin cookies</span>
+                <button id="deleteCookiesBtn" class="btn btn--danger-sm" onclick="deleteCookies()" style="display:none;">✕</button>
+            </div>
+        </section>
+
         <!-- Botones de acción -->
         <div class="actions">
             <button id="downloadBtn" class="btn btn--primary" onclick="startDownload()">
                 <span class="btn__icon">⬇</span> D E S C A R G A R
+            </button>
+            <button id="stopBtn" class="btn btn--stop" onclick="stopDownload()" style="display:none;">
+                <span class="btn__icon">⏹</span> P A R A R
             </button>
         </div>
 

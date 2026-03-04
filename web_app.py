@@ -63,6 +63,7 @@ from downloader import (
 # ═══════════════════════════════════════════════════════════════════════
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2 MB máx. para uploads
 
 # ── Asegurar que ffmpeg esté en el PATH (para Render) ──
 _ffmpeg_home = os.path.join(os.path.expanduser("~"), "ffmpeg")
@@ -76,6 +77,11 @@ _jobs: dict[str, dict] = {}
 # Carpeta base para almacenar descargas temporales del servidor
 DOWNLOADS_BASE = os.path.join(tempfile.gettempdir(), "musicdl_web")
 os.makedirs(DOWNLOADS_BASE, exist_ok=True)
+
+# Carpeta para almacenar el archivo de cookies subido
+COOKIES_DIR = os.path.join(DOWNLOADS_BASE, "_cookies")
+os.makedirs(COOKIES_DIR, exist_ok=True)
+COOKIES_FILE = os.path.join(COOKIES_DIR, "cookies.txt")  # ruta fija
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -109,28 +115,39 @@ def health():
 def api_start_download():
     """
     Inicia una descarga asíncrona.
-    Body JSON: {"url": "https://..."}
+    Body JSON: {"url": "https://...", "dest_folder": "/ruta/opcional"}
     Retorna: {"job_id": "uuid-..."}
     """
     data = request.get_json(force=True)
     url = (data.get("url") or "").strip()
+    custom_dest = (data.get("dest_folder") or "").strip()
 
     if not url:
         return jsonify({"error": "Falta la URL"}), 400
 
     # Crear job
     job_id = str(uuid.uuid4())[:12]
-    job_folder = os.path.join(DOWNLOADS_BASE, job_id)
-    os.makedirs(job_folder, exist_ok=True)
+
+    # Carpeta destino: la personalizada (si es válida) o la temporal por defecto
+    if custom_dest and os.path.isdir(custom_dest):
+        job_folder = os.path.join(custom_dest, f"MusicDL_{job_id}")
+        os.makedirs(job_folder, exist_ok=True)
+        use_custom_dest = True
+    else:
+        job_folder = os.path.join(DOWNLOADS_BASE, job_id)
+        os.makedirs(job_folder, exist_ok=True)
+        use_custom_dest = False
 
     job = {
         "id": job_id,
         "url": url,
         "folder": job_folder,
         "queue": Queue(),         # Cola de mensajes SSE
-        "status": "running",      # running | done | error
+        "status": "running",      # running | done | error | stopped
         "files": [],              # Archivos descargados
         "created_at": time.time(),
+        "stop_requested": False,  # Señal de parada
+        "custom_dest": use_custom_dest,
     }
     _jobs[job_id] = job
 
@@ -143,6 +160,49 @@ def api_start_download():
     thread.start()
 
     return jsonify({"job_id": job_id})
+
+
+@app.route("/api/stop/<job_id>", methods=["POST"])
+def api_stop_download(job_id: str):
+    """Solicita la parada de un job en curso."""
+    job = _jobs.get(job_id)
+    if not job:
+        abort(404)
+
+    job["stop_requested"] = True
+    return jsonify({"ok": True, "message": "Parada solicitada"})
+
+
+@app.route("/api/upload-cookies", methods=["POST"])
+def api_upload_cookies():
+    """
+    Sube un archivo cookies.txt (formato Netscape) para que yt-dlp
+    pueda autenticarse en YouTube y evitar la detección de bots.
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "No se envió ningún archivo"}), 400
+
+    f = request.files["file"]
+    if not f.filename:
+        return jsonify({"error": "Archivo vacío"}), 400
+
+    f.save(COOKIES_FILE)
+    return jsonify({"ok": True, "message": "Cookies guardadas correctamente"})
+
+
+@app.route("/api/cookies-status")
+def api_cookies_status():
+    """Devuelve si hay un archivo de cookies guardado."""
+    exists = os.path.isfile(COOKIES_FILE)
+    return jsonify({"has_cookies": exists})
+
+
+@app.route("/api/delete-cookies", methods=["POST"])
+def api_delete_cookies():
+    """Elimina el archivo de cookies guardado."""
+    if os.path.isfile(COOKIES_FILE):
+        os.remove(COOKIES_FILE)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/stream/<job_id>")
@@ -250,6 +310,9 @@ def _download_worker(job: dict):
     url = job["url"]
     dest = job["folder"]
 
+    # Archivo de cookies (si existe)
+    cookies = COOKIES_FILE if os.path.isfile(COOKIES_FILE) else ""
+
     def log(msg: str):
         q.put(msg)
 
@@ -281,7 +344,7 @@ def _download_worker(job: dict):
         elif is_youtube_url(url):
             log("🔗 Enlace de YouTube detectado…")
             try:
-                tracks = get_youtube_info(url)
+                tracks = get_youtube_info(url, cookies_file=cookies)
             except Exception as e:
                 log(f"❌ Error YouTube: {e}")
                 tracks = [{
@@ -318,6 +381,12 @@ def _download_worker(job: dict):
         ok = 0
         fail = 0
         for i, track in enumerate(tracks, 1):
+            # ── Comprobar parada solicitada ──
+            if job.get("stop_requested"):
+                log("\n⛔ Descarga detenida por el usuario.")
+                job["status"] = "stopped"
+                break
+
             label = f"{track.get('artist', '?')} — {track.get('title', '?')}"
             log(f"── [{i}/{total}] {label} ──")
 
@@ -335,6 +404,7 @@ def _download_worker(job: dict):
                     slskd_api_url=SLSKD_API_URL,
                     slskd_api_key=SLSKD_API_KEY,
                     log_callback=log,
+                    cookies_file=cookies,
                 )
                 if result and os.path.exists(result):
                     job["files"].append(result)
@@ -346,8 +416,15 @@ def _download_worker(job: dict):
                 fail += 1
 
         # ── 3. Resumen ────────────────────────────────────────────
-        log(f"\n🏁 Listo — ✅ {ok}/{total}" + (f"  ❌ {fail} errores" if fail else ""))
-        job["status"] = "done" if ok > 0 else "error"
+        if job["status"] != "stopped":
+            log(f"\n🏁 Listo — ✅ {ok}/{total}" + (f"  ❌ {fail} errores" if fail else ""))
+            job["status"] = "done" if ok > 0 else "error"
+        else:
+            log(f"\n🏁 Detenido — ✅ {ok} descargado(s)")
+
+        # Si el usuario eligió carpeta personalizada, indicar ruta
+        if job.get("custom_dest") and ok > 0:
+            log(f"📂 Archivos guardados en: {dest}")
 
     except Exception as e:
         log(f"\n❌ Error crítico: {e}")

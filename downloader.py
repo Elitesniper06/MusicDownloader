@@ -328,6 +328,7 @@ def plan_b_download(
     track_number: int = 0,
     youtube_url: str = None,
     log_callback: Callable[[str], None] = print,
+    cookies_file: str = "",
 ) -> Optional[str]:
     """
     PLAN B: Descarga la mejor calidad de audio disponible desde YouTube Music
@@ -392,6 +393,11 @@ def plan_b_download(
     if _FFMPEG_PATH:
         ydl_opts["ffmpeg_location"] = _FFMPEG_PATH
 
+    # Cookies para evitar detección de bots en YouTube
+    if cookies_file and os.path.isfile(cookies_file):
+        ydl_opts["cookiefile"] = cookies_file
+        log_callback("   🍪 Usando archivo de cookies para YouTube.")
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(search_target, download=True)
@@ -451,6 +457,7 @@ def download_track(
     slskd_api_url: str = "",
     slskd_api_key: str = "",
     log_callback: Callable[[str], None] = print,
+    cookies_file: str = "",
 ) -> Optional[str]:
     """
     Orquestador principal. Intenta Plan A → Plan B.
@@ -486,6 +493,7 @@ def download_track(
         track_number=track_number,
         youtube_url=youtube_url,
         log_callback=log_callback,
+        cookies_file=cookies_file,
     )
 
     if result:
@@ -629,7 +637,7 @@ def is_youtube_url(url: str) -> bool:
     ))
 
 
-def get_youtube_info(url: str) -> list[dict]:
+def get_youtube_info(url: str, cookies_file: str = "") -> list[dict]:
     """
     Extrae información de una URL de YouTube sin descargar.
     Devuelve lista de tracks con título y artista.
@@ -651,6 +659,8 @@ def get_youtube_info(url: str) -> list[dict]:
         }
         if _FFMPEG_PATH:
             ydl_opts["ffmpeg_location"] = _FFMPEG_PATH
+        if cookies_file and os.path.isfile(cookies_file):
+            ydl_opts["cookiefile"] = cookies_file
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -669,6 +679,8 @@ def get_youtube_info(url: str) -> list[dict]:
         }
         if _FFMPEG_PATH:
             ydl_opts["ffmpeg_location"] = _FFMPEG_PATH
+        if cookies_file and os.path.isfile(cookies_file):
+            ydl_opts["cookiefile"] = cookies_file
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
