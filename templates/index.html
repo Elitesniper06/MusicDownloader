@@ -245,8 +245,6 @@
             0%, 100% { opacity: 1; }
             50% { opacity: 0.3; }
         }
-
-
     </style>
 </head>
 <body>
@@ -258,33 +256,42 @@
                <span id="statusText">Listo para descargar</span></p>
         </div>
 
-            <!-- URL Input -->
-            <div class="card">
-                <div class="card-label">🔗 URL</div>
-                <input type="url" class="url-input" id="urlInput"
-                       placeholder="Pega aquí el link de Spotify, YouTube..."
-                       autocomplete="off" spellcheck="false">
-            </div>
+        <!-- URL Input -->
+        <div class="card">
+            <div class="card-label">🔗 URL</div>
+            <input type="url" class="url-input" id="urlInput"
+                   placeholder="Pega aquí el link de Spotify, YouTube..."
+                   autocomplete="off" spellcheck="false">
+        </div>
 
-            <!-- Buttons -->
-            <div class="btn-row">
-                <button class="btn btn-download" id="btnDownload" onclick="startDownload()">
-                    ⬇️ DESCARGAR
-                </button>
-                <button class="btn btn-stop" id="btnStop" onclick="stopDownload()" disabled>
-                    ⏹ PARAR
-                </button>
+        <!-- Folder Picker (solo PC con File System Access API) -->
+        <div class="card" id="folderCard" style="display:none;">
+            <div class="card-label">📁 Carpeta de destino</div>
+            <div class="folder-row">
+                <span class="folder-path" id="folderPath">Sin seleccionar (se descargará como ZIP)</span>
+                <button class="folder-btn" id="folderBtn" onclick="pickFolder()">📂 Elegir</button>
             </div>
+        </div>
 
-            <!-- Progress -->
-            <div class="progress-wrap" id="progressWrap">
-                <div class="progress-bar" id="progressBar"></div>
-            </div>
+        <!-- Buttons -->
+        <div class="btn-row">
+            <button class="btn btn-download" id="btnDownload" onclick="startDownload()">
+                ⬇️ DESCARGAR
+            </button>
+            <button class="btn btn-stop" id="btnStop" onclick="stopDownload()" disabled>
+                ⏹ PARAR
+            </button>
+        </div>
 
-            <!-- Log -->
-            <div class="log-container" id="logContainer">
-                <div class="log-line">✅ Listo. Pega una URL y pulsa DESCARGAR.</div>
-            </div>
+        <!-- Progress -->
+        <div class="progress-wrap" id="progressWrap">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+
+        <!-- Log -->
+        <div class="log-container" id="logContainer">
+            <div class="log-line">✅ Listo. Pega una URL y pulsa DESCARGAR.</div>
+        </div>
 
         <!-- Footer -->
         <div class="footer">
@@ -303,8 +310,51 @@
         const statusDot = document.getElementById('statusDot');
         const statusText = document.getElementById('statusText');
         const urlInput = document.getElementById('urlInput');
+        const folderCard = document.getElementById('folderCard');
+        const folderPath = document.getElementById('folderPath');
 
         let isDownloading = false;
+
+        // ── File System Access API (solo PC Chrome/Edge) ─────
+        // Si el navegador lo soporta → mostrar selector de carpeta
+        // Si no (móvil, Firefox) → descargar como ZIP al final
+        const hasFSA = ('showDirectoryPicker' in window);
+        let dirHandle = null;  // FileSystemDirectoryHandle elegido
+
+        if (hasFSA) {
+            folderCard.style.display = '';
+        }
+
+        async function pickFolder() {
+            try {
+                dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+                folderPath.textContent = dirHandle.name;
+                folderPath.style.color = 'var(--green)';
+                addLog('📂 Carpeta seleccionada: ' + dirHandle.name);
+            } catch (e) {
+                // El usuario canceló
+                if (e.name !== 'AbortError') {
+                    addLog('⚠️ Error al seleccionar carpeta: ' + e.message);
+                }
+            }
+        }
+
+        /** Guarda un archivo descargado del servidor en la carpeta local */
+        async function saveToLocal(filename) {
+            if (!dirHandle) return;
+            try {
+                const resp = await fetch('/api/download_file/' + encodeURIComponent(filename));
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const blob = await resp.blob();
+                const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+                const writable = await fileHandle.createWritable();
+                await writable.write(blob);
+                await writable.close();
+                addLog('💾 Guardado en carpeta: ' + filename);
+            } catch (e) {
+                addLog('⚠️ Error guardando ' + filename + ': ' + e.message);
+            }
+        }
 
         function clearLog() {
             logContainer.innerHTML = '';
@@ -315,7 +365,7 @@
             const line = document.createElement('div');
             line.className = 'log-line';
             if (msg.includes('❌') || msg.includes('Error')) line.className += ' error';
-            else if (msg.includes('✅') || msg.includes('🏁')) line.className += ' success';
+            else if (msg.includes('✅') || msg.includes('🏁') || msg.includes('💾')) line.className += ' success';
             else if (msg.includes('⚠️') || msg.includes('⛔')) line.className += ' warn';
             line.textContent = msg;
             logContainer.appendChild(line);
@@ -348,14 +398,24 @@
             progressBar.classList.remove('indeterminate');
         });
 
-        // Cuando un archivo está listo → descargarlo
+        // Cuando un archivo está listo
         socket.on('file_ready', async (data) => {
             if (!data.filename) return;
-            // No descargar individualmente, esperar batch_complete
+            // Si hay carpeta elegida (PC) → guardar directamente
+            if (hasFSA && dirHandle) {
+                await saveToLocal(data.filename);
+            }
+            // Si no, esperar batch_complete para ZIP
         });
 
-        // Cuando acaba la sesión, descargar todo junto
+        // Cuando acaba la sesión
         socket.on('batch_complete', (data) => {
+            // Si el usuario eligió carpeta en PC → ya se guardaron en file_ready
+            if (hasFSA && dirHandle) {
+                addLog('✅ Todos los archivos guardados en: ' + dirHandle.name);
+                return;
+            }
+            // Si no hay carpeta (móvil / no eligió) → descarga ZIP o archivo
             if (data.count === 1 && data.single_filename) {
                 addLog('📲 Descargando: ' + data.single_filename);
                 triggerDownload('/api/download_file/' + encodeURIComponent(data.single_filename), data.single_filename);
@@ -413,7 +473,6 @@
                 urlInput.focus();
                 return;
             }
-            // Enviar por SocketIO (aislado por sesión)
             socket.emit('start_download', { url });
         }
 
