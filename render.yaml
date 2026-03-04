@@ -5,10 +5,8 @@ services:
   - type: web
     name: music-downloader
     runtime: python
-    buildCommand: |
-      pip install -r requirements.txt
-      apt-get update && apt-get install -y ffmpeg || true
-    startCommand: gunicorn web_app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 300
+    buildCommand: chmod +x build.sh && ./build.sh
+    startCommand: PATH="$HOME/ffmpeg:$PATH" gunicorn web_app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 600
     envVars:
       - key: PYTHON_VERSION
         value: "3.13.0"

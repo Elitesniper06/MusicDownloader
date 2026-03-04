@@ -34,13 +34,23 @@ from flask import (
     abort,
 )
 
-from config import (
-    SPOTIFY_CLIENT_ID,
-    SPOTIFY_CLIENT_SECRET,
-    DEEZER_ARL,
-    SLSKD_API_URL,
-    SLSKD_API_KEY,
-)
+# ── Credenciales: leer de variables de entorno (obligatorio en Render) ──
+# En local, intenta importar config.py; en la nube, usa env vars.
+try:
+    from config import (
+        SPOTIFY_CLIENT_ID,
+        SPOTIFY_CLIENT_SECRET,
+        DEEZER_ARL,
+        SLSKD_API_URL,
+        SLSKD_API_KEY,
+    )
+except ImportError:
+    SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID", "")
+    SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", "")
+    DEEZER_ARL = os.environ.get("DEEZER_ARL", "")
+    SLSKD_API_URL = os.environ.get("SLSKD_API_URL", "")
+    SLSKD_API_KEY = os.environ.get("SLSKD_API_KEY", "")
+
 from spotify_utils import is_spotify_url, get_tracks_from_spotify_url
 from downloader import (
     download_track,
@@ -53,6 +63,11 @@ from downloader import (
 # ═══════════════════════════════════════════════════════════════════════
 
 app = Flask(__name__)
+
+# ── Asegurar que ffmpeg esté en el PATH (para Render) ──
+_ffmpeg_home = os.path.join(os.path.expanduser("~"), "ffmpeg")
+if os.path.isdir(_ffmpeg_home):
+    os.environ["PATH"] = _ffmpeg_home + os.pathsep + os.environ.get("PATH", "")
 
 # Almacén en memoria de sesiones de descarga activas
 # Clave: job_id (str) → Valor: dict con estado y cola de mensajes
@@ -71,6 +86,19 @@ os.makedirs(DOWNLOADS_BASE, exist_ok=True)
 def index():
     """Página principal con la interfaz del downloader."""
     return render_template("index.html")
+
+
+@app.route("/health")
+def health():
+    """Endpoint de salud — para verificar que la app funciona en Render."""
+    import shutil
+    ffmpeg_ok = shutil.which("ffmpeg") is not None
+    return jsonify({
+        "status": "ok",
+        "ffmpeg": ffmpeg_ok,
+        "spotify_configured": bool(SPOTIFY_CLIENT_ID),
+        "deezer_configured": bool(DEEZER_ARL),
+    })
 
 
 # ═══════════════════════════════════════════════════════════════════════
