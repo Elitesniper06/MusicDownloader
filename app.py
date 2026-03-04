@@ -364,8 +364,8 @@ class MusicDownloaderApp(ctk.CTk):
 
 def main():
     """Inicia la aplicación."""
-    print(f"Iniciando {APP_TITLE}...")
-    print("Cierra esta ventana de terminal para detener la aplicación.\n")
+    print(f"Iniciando Music Downloader Pro...")
+    print("Cierra esta ventana de terminal para detener la aplicacion.\n")
 
     app = MusicDownloaderApp()
     app.mainloop()
