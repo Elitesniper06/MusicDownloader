@@ -334,9 +334,9 @@ def _download_worker(job: dict):
 
     # Cookies: automáticas según entorno
     cookies_file = COOKIES_FILE if os.path.isfile(COOKIES_FILE) else ""
-    # En LOCAL: leer cookies del navegador automáticamente (zero-effort)
-    # En RENDER: extractor_args en downloader.py maneja YouTube sin cookies
-    cookies_browser = "chrome" if IS_LOCAL else ""
+    # En LOCAL: intentar múltiples navegadores en orden (brave, chrome, edge, firefox)
+    # En RENDER: extractor_args en downloader.py + player_skip evita detección de bots
+    cookies_browser = "brave,chrome,edge,firefox" if IS_LOCAL else ""
 
     def log(msg: str):
         q.put(msg)

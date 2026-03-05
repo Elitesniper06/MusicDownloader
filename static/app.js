@@ -55,13 +55,13 @@ async function detectEnvironment() {
     const hasFileSystemAPI = ("showDirectoryPicker" in window);
 
     if (!hasFileSystemAPI && !isLocal) {
-        // Ni File System API ni local → ocultar botón, mostrar aviso
-        browseFolderBtn.style.display = "none";
+        // Sin File System API y en la nube (ej. Brave en Render)
+        // Mostrar botón pero cambiar texto + mostrar tip»re cómo elegir carpeta en Brave
+        browseFolderBtn.textContent = "📂 Elegir Carpeta (requiere Chrome/Edge)";
         folderApiWarning.style.display = "block";
-        folderStatus.textContent = "Los archivos se descargarán al navegador";
+        folderStatus.textContent = "Los archivos se descargarán a tu carpeta de Descargas";
     } else if (!hasFileSystemAPI && isLocal) {
         // Sin File System API pero en local → usar endpoint del servidor (tkinter)
-        // browseFolder() llamará a /api/browse-folder como fallback
     }
     // Si tiene File System API → browseFolder() usará showDirectoryPicker
 }
@@ -132,7 +132,10 @@ async function browseFolder() {
         browseFolderBtn.textContent = "📁 Seleccionar Carpeta / Pendrive";
 
     } else {
-        addLog("⚠️ Tu navegador no soporta selección de carpetas.", "dim");
+        // ── BRAVE / Firefox en Render: mostrar instrucciones ──
+        addLog("📂 Brave no permite elegir carpeta desde la web.", "accent");
+        addLog("💡 Tip: En Brave ve a Configuración → Descargas → activa 'Preguntar dónde guardar cada archivo'.", "accent");
+        addLog("   Así Brave te preguntará DÓNDE guardar cada canción al descargarla.", "dim");
     }
 }
 

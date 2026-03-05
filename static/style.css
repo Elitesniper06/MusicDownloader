@@ -608,10 +608,22 @@ body {
     letter-spacing: 0.5px;
 }
 
-/* ── Aviso de API no soportada ────────────────────────────────────── */
+/* ── Aviso de API no soportada (Brave/Firefox) ────────────────────── */
 .folder-api-warning {
-    margin-top: 8px;
-    font-size: 0.72rem;
+    margin-top: 10px;
+    font-size: 0.73rem;
+    color: var(--text-dim);
+    font-family: var(--font-body);
+    line-height: 1.5;
+    background: rgba(212, 172, 13, .06);
+    border: 1px solid rgba(212, 172, 13, .15);
+    border-radius: 8px;
+    padding: 10px 14px;
+}
+.folder-api-warning strong {
     color: #D4AC0D;
-    font-family: var(--font-mono);
+}
+.folder-api-warning em {
+    color: var(--text);
+    font-style: normal;
 }
