@@ -355,6 +355,8 @@ def index() -> Response:
     #statusText { color: var(--muted); font-weight: 600; }
     #folderBtn { background: #4338ca; color: white; }
     #folderBtn.active { background: #16a34a; }
+    #autoBtn { background: #0369a1; color: white; }
+    #autoBtn.active { background: #16a34a; }
     @media (max-width: 900px) {
       .controls { grid-template-columns: 1fr; }
       .stats { grid-template-columns: 1fr 1fr; }
@@ -378,9 +380,10 @@ def index() -> Response:
       </div>
 
       <div class=\"row\">
-        <div class=\"controls\" style=\"grid-template-columns: auto 1fr;\">
-          <button id=\"folderBtn\">Select Folder</button>
-          <span id=\"folderLabel\" style=\"color: var(--muted); font-size: 13px;\">No folder selected (files will download as ZIP)</span>
+        <div class=\"controls\" style=\"grid-template-columns: auto auto 1fr;\">
+          <button id=\"autoBtn\">Auto-download</button>
+          <button id=\"folderBtn\">Custom Folder</button>
+          <span id=\"folderLabel\" style=\"color: var(--muted); font-size: 13px;\">Click Auto-download to save to your Downloads folder, or Custom Folder for another location</span>
         </div>
       </div>
 
@@ -421,6 +424,7 @@ def index() -> Response:
     let currentJobId = null;
     let pollHandle = null;
     let dirHandle = null;
+    let autoDownload = false;
     const savedFiles = new Set();
 
     function setBusy(isBusy) {
@@ -470,6 +474,9 @@ def index() -> Response:
       if (dirHandle) {
         document.getElementById("folderLabel").textContent =
           "Saving to: " + dirHandle.name + " (" + savedFiles.size + " saved)";
+      } else if (autoDownload) {
+        document.getElementById("folderLabel").textContent =
+          "Auto-downloading to browser Downloads (" + savedFiles.size + " saved)";
       }
 
       setStatusLine("Job " + job.id + " is " + job.status + ".");
@@ -540,26 +547,58 @@ def index() -> Response:
       }
     });
 
+    document.getElementById("autoBtn").addEventListener("click", () => {
+      autoDownload = !autoDownload;
+      dirHandle = null;
+      document.getElementById("folderBtn").classList.remove("active");
+      if (autoDownload) {
+        document.getElementById("autoBtn").classList.add("active");
+        document.getElementById("folderLabel").textContent = "Auto-download ON — files save to your Downloads folder";
+        document.getElementById("folderLabel").style.color = "var(--accent)";
+      } else {
+        document.getElementById("autoBtn").classList.remove("active");
+        document.getElementById("folderLabel").textContent = "Auto-download OFF";
+        document.getElementById("folderLabel").style.color = "var(--muted)";
+      }
+    });
+
     document.getElementById("folderBtn").addEventListener("click", async () => {
       if (!window.showDirectoryPicker) {
-        setStatusLine("Your browser does not support folder selection. Use ZIP download.");
+        setStatusLine("Your browser does not support folder selection. Use Auto-download instead.");
         return;
       }
       try {
-        dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+        dirHandle = await window.showDirectoryPicker({ mode: "readwrite", startIn: "downloads" });
+        autoDownload = false;
+        document.getElementById("autoBtn").classList.remove("active");
         document.getElementById("folderBtn").classList.add("active");
         document.getElementById("folderLabel").textContent = "Saving to: " + dirHandle.name;
         document.getElementById("folderLabel").style.color = "var(--accent)";
       } catch (e) { /* user cancelled */ }
     });
 
+    function triggerBrowserDownload(url, filename) {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+
     async function saveNewFiles(job) {
-      if (!dirHandle || !job.completedFiles) return;
+      if (!job.completedFiles) return;
+      if (!dirHandle && !autoDownload) return;
       for (const fname of job.completedFiles) {
         if (savedFiles.has(fname)) continue;
         savedFiles.add(fname);
+        const fileUrl = "/api/jobs/" + job.id + "/files/" + encodeURIComponent(fname);
+        if (autoDownload) {
+          triggerBrowserDownload(fileUrl, fname);
+          continue;
+        }
         try {
-          const resp = await fetch("/api/jobs/" + job.id + "/files/" + encodeURIComponent(fname));
+          const resp = await fetch(fileUrl);
           if (!resp.ok) { savedFiles.delete(fname); continue; }
           const blob = await resp.blob();
           const fh = await dirHandle.getFileHandle(fname, { create: true });
