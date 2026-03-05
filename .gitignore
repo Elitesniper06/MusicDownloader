@@ -23,7 +23,7 @@ Thumbs.db
 desktop.ini
 
 # ⚠️ NUNCA subir config.py con credenciales reales
-# config.py
+config.py
 
 # Archivos temporales de descarga
 *.flac

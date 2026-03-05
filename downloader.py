@@ -319,6 +319,57 @@ class YTDLPLogger:
         self.callback(f"❌ {msg.strip()}")
 
 
+def _try_ytdlp_with_browsers(
+    ydl_opts: dict,
+    url: str,
+    browsers_to_try: list,
+    download: bool = True,
+    log_callback: Callable[[str], None] = print,
+) -> Optional[dict]:
+    """
+    Ejecuta yt-dlp con reintentos automáticos probando distintos navegadores
+    para las cookies. Si no hay navegadores que probar, ejecuta sin cookies.
+    
+    Devuelve el dict de info, o None si todos los intentos fallan.
+    """
+    last_error = None
+
+    # Si hay navegadores que probar, intentar cada uno
+    if browsers_to_try:
+        for browser in browsers_to_try:
+            try:
+                opts = {**ydl_opts, "cookiesfrombrowser": (browser,)}
+                log_callback(f"   🍪 Probando cookies de {browser}…")
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=download)
+                return info
+            except Exception as e:
+                err_msg = str(e)
+                last_error = e
+                # Si es un error de cookies/browser, probar el siguiente
+                if any(kw in err_msg.lower() for kw in [
+                    "sign in", "bot", "cookies", "could not find",
+                    "no suitable", "permission denied",
+                ]):
+                    continue
+                # Si es otro tipo de error, no reintentar
+                raise
+
+    # Sin navegadores (o todos fallaron) → intentar sin cookies
+    try:
+        log_callback("   🔓 Intentando sin cookies (clientes alternativos iOS/web_creator)…")
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=download)
+        return info
+    except Exception as e:
+        last_error = e
+
+    # Si todo falló, propagar el último error
+    if last_error:
+        raise last_error
+    return None
+
+
 def plan_b_download(
     title: str,
     artist: str,
@@ -328,6 +379,8 @@ def plan_b_download(
     track_number: int = 0,
     youtube_url: str = None,
     log_callback: Callable[[str], None] = print,
+    cookies_file: str = "",
+    cookies_from_browser: str = "",
 ) -> Optional[str]:
     """
     PLAN B: Descarga la mejor calidad de audio disponible desde YouTube Music
@@ -386,24 +439,44 @@ def plan_b_download(
             f":{_escape_metadata(title)}:%(meta_title)s",
             f":{_escape_metadata(artist)}:%(meta_artist)s",
         ],
+        # Clientes alternativos de YouTube para evitar detección de bots
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["ios", "web_creator"],
+                "player_skip": ["webpage", "configs"],
+            }
+        },
     }
 
     # Indicar la ruta de FFmpeg si fue encontrada automáticamente
     if _FFMPEG_PATH:
         ydl_opts["ffmpeg_location"] = _FFMPEG_PATH
 
+    # Cookies para evitar detección de bots en YouTube
+    if cookies_file and os.path.isfile(cookies_file):
+        ydl_opts["cookiefile"] = cookies_file
+        log_callback("   🍪 Usando archivo de cookies para YouTube.")
+    elif cookies_from_browser:
+        # cookies_from_browser puede ser "brave,chrome,edge,firefox" (lista separada por comas)
+        ydl_opts["_browsers_to_try"] = [b.strip() for b in cookies_from_browser.split(",") if b.strip()]
+
+    # Intentar descarga, con reintentos usando distintos navegadores si falla
+    browsers_to_try = ydl_opts.pop("_browsers_to_try", [])
+    info = _try_ytdlp_with_browsers(ydl_opts, search_target, browsers_to_try, download=True, log_callback=log_callback)
+
+    if info is None:
+        log_callback("   ❌ No se pudo descargar de YouTube.")
+        return None
+
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(search_target, download=True)
+        # Si fue una búsqueda, info puede estar dentro de "entries"
+        if "entries" in info:
+            info = info["entries"][0]
 
-            # Si fue una búsqueda, info puede estar dentro de "entries"
-            if "entries" in info:
-                info = info["entries"][0]
-
-            log_callback(
-                f"   ⬇️ Descargando YouTube: {info.get('title', title)} "
-                f"({info.get('abr', '?')}kbps)"
-            )
+        log_callback(
+            f"   ⬇️ Descargado YouTube: {info.get('title', title)} "
+            f"({info.get('abr', '?')}kbps)"
+        )
 
         # Buscar el archivo descargado
         downloaded_file = _find_downloaded_file(dest_folder, safe_title)
@@ -451,6 +524,8 @@ def download_track(
     slskd_api_url: str = "",
     slskd_api_key: str = "",
     log_callback: Callable[[str], None] = print,
+    cookies_file: str = "",
+    cookies_from_browser: str = "",
 ) -> Optional[str]:
     """
     Orquestador principal. Intenta Plan A → Plan B.
@@ -486,6 +561,8 @@ def download_track(
         track_number=track_number,
         youtube_url=youtube_url,
         log_callback=log_callback,
+        cookies_file=cookies_file,
+        cookies_from_browser=cookies_from_browser,
     )
 
     if result:
@@ -629,7 +706,7 @@ def is_youtube_url(url: str) -> bool:
     ))
 
 
-def get_youtube_info(url: str) -> list[dict]:
+def get_youtube_info(url: str, cookies_file: str = "", cookies_from_browser: str = "") -> list[dict]:
     """
     Extrae información de una URL de YouTube sin descargar.
     Devuelve lista de tracks con título y artista.
@@ -643,17 +720,33 @@ def get_youtube_info(url: str) -> list[dict]:
         url,
     ))
 
+    # Preparar lista de navegadores para reintentos de cookies
+    browsers_to_try = []
+    if cookies_file and os.path.isfile(cookies_file):
+        pass  # Se usa cookiefile, no hace falta browsers
+    elif cookies_from_browser:
+        browsers_to_try = [b.strip() for b in cookies_from_browser.split(",") if b.strip()]
+
     if is_playlist:
         ydl_opts = {
             "quiet": True,
             "no_warnings": True,
             "extract_flat": True,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["ios", "web_creator"],
+                    "player_skip": ["webpage", "configs"],
+                }
+            },
         }
         if _FFMPEG_PATH:
             ydl_opts["ffmpeg_location"] = _FFMPEG_PATH
+        if cookies_file and os.path.isfile(cookies_file):
+            ydl_opts["cookiefile"] = cookies_file
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+        info = _try_ytdlp_with_browsers(ydl_opts, url, browsers_to_try, download=False)
+        if info is None:
+            raise RuntimeError("No se pudo obtener información de la playlist de YouTube.")
 
         tracks = []
         for entry in info.get("entries", []):
@@ -666,12 +759,21 @@ def get_youtube_info(url: str) -> list[dict]:
             "quiet": True,
             "no_warnings": True,
             "noplaylist": True,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["ios", "web_creator"],
+                    "player_skip": ["webpage", "configs"],
+                }
+            },
         }
         if _FFMPEG_PATH:
             ydl_opts["ffmpeg_location"] = _FFMPEG_PATH
+        if cookies_file and os.path.isfile(cookies_file):
+            ydl_opts["cookiefile"] = cookies_file
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+        info = _try_ytdlp_with_browsers(ydl_opts, url, browsers_to_try, download=False)
+        if info is None:
+            raise RuntimeError("No se pudo obtener información del video de YouTube.")
 
         if "entries" in info:
             info = info["entries"][0] if info["entries"] else {}

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Music Downloader</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <!-- Google Fonts: Orbitron (títulos) + Inter (cuerpo) + JetBrains Mono (log) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <!-- ════ FONDO ANIMADO (partículas CSS) ════ -->
+    <div class="bg-grid"></div>
+    <div class="bg-glow bg-glow--cyan"></div>
+    <div class="bg-glow bg-glow--magenta"></div>
+
+    <!-- ════ TARJETA PRINCIPAL (GLASS CARD) ════ -->
+    <main class="card">
+
+        <!-- Cabecera -->
+        <header class="card__header">
+            <h1 class="card__title">
+                <span class="card__icon">⟨🎧⟩</span>
+                MUSIC <span class="accent">DOWNLOADER</span>
+            </h1>
+            <div class="accent-line"></div>
+            <p class="card__subtitle">
+                Pega una URL de <strong>Spotify</strong> o <strong>YouTube</strong> y descarga en la mejor calidad posible
+            </p>
+        </header>
+
+        <!-- Campo URL -->
+        <section class="field-card">
+            <label class="field-card__label">🔗&ensp;URL DE CANCIÓN / PLAYLIST</label>
+            <input
+                type="text"
+                id="urlInput"
+                class="field-card__input"
+                placeholder="https://open.spotify.com/track/...  ó  https://youtube.com/watch?v=..."
+                autocomplete="off"
+                spellcheck="false"
+            >
+        </section>
+
+        <!-- Carpeta destino — File System Access API (funciona en Chrome/Edge) -->
+        <section id="folderSection" class="field-card field-card--small">
+            <label class="field-card__label">📂&ensp;CARPETA DESTINO</label>
+            <div class="folder-row">
+                <button id="browseFolderBtn" class="btn btn--folder" onclick="browseFolder()">
+                    📁 Seleccionar Carpeta / Pendrive
+                </button>
+                <span id="folderStatus" class="folder-status">⚠ Ninguna carpeta seleccionada — se descargarán al navegador</span>
+                <button id="clearFolderBtn" class="btn btn--danger-sm" onclick="clearFolder()" style="display:none;">✕</button>
+            </div>
+            <input type="hidden" id="destInput" value="">
+            <p id="folderApiWarning" class="folder-api-warning" style="display:none;">
+                💡 <strong>Brave/Firefox</strong>: Ve a Configuración → Descargas → activa <em>"Preguntar dónde guardar cada archivo"</em>.<br>
+                Así tu navegador te dejará elegir la carpeta cada vez. Para selector nativo, usa Chrome o Edge.
+            </p>
+        </section>
+
+        <!-- Botones de acción -->
+        <div class="actions">
+            <button id="downloadBtn" class="btn btn--primary" onclick="startDownload()">
+                <span class="btn__icon">⬇</span> D E S C A R G A R
+            </button>
+            <button id="stopBtn" class="btn btn--stop" onclick="stopDownload()" style="display:none;">
+                <span class="btn__icon">⏹</span> P A R A R
+            </button>
+        </div>
+
+        <!-- Barra de progreso -->
+        <div class="progress-track" id="progressTrack">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+
+        <!-- Área de Log -->
+        <section class="log-section">
+            <label class="log-section__label">TERMINAL — LOG DE ACTIVIDAD</label>
+            <div id="logBox" class="log-box">
+                <span class="log-line log-line--dim">Esperando URL…</span>
+            </div>
+        </section>
+
+        <!-- Archivos descargados (se muestra dinámicamente) -->
+        <section id="filesSection" class="files-section" style="display:none;">
+            <label class="files-section__label">📦&ensp;ARCHIVOS LISTOS</label>
+            <div id="filesList" class="files-list"></div>
+            <button id="zipBtn" class="btn btn--secondary" onclick="downloadZip()" style="display:none;">
+                📁 Descargar TODO (.zip)
+            </button>
+        </section>
+
+        <!-- Pie -->
+        <footer class="card__footer">
+            Plan A ▸ FLAC (Deezer) &nbsp;·&nbsp; Plan B ▸ Best Audio (yt-dlp + YouTube Music)
+        </footer>
+
+    </main>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
