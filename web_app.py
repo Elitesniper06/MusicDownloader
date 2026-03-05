@@ -47,6 +47,7 @@ class DownloadJob:
     logs: list[str] = field(default_factory=list)
     work_dir: str = ""
     zip_path: str = ""
+    completed_files: list[str] = field(default_factory=list)
 
 
 app = Flask(__name__)
@@ -147,7 +148,7 @@ def _run_job(job_id: str) -> None:
                 f"{track.get('artist', 'Unknown')} - {track.get('title', 'Unknown')}",
             )
 
-            success = download_track(
+            result_path = download_track(
                 title=track.get("title", "Unknown"),
                 artist=track.get("artist", "Unknown"),
                 album=track.get("album", ""),
@@ -164,8 +165,9 @@ def _run_job(job_id: str) -> None:
 
             with _jobs_lock:
                 job.processed_tracks += 1
-                if success:
+                if result_path:
                     job.success_count += 1
+                    job.completed_files.append(os.path.basename(result_path))
                 else:
                     job.fail_count += 1
 
@@ -351,6 +353,8 @@ def index() -> Response:
       font-weight: 700;
     }
     #statusText { color: var(--muted); font-weight: 600; }
+    #folderBtn { background: #4338ca; color: white; }
+    #folderBtn.active { background: #16a34a; }
     @media (max-width: 900px) {
       .controls { grid-template-columns: 1fr; }
       .stats { grid-template-columns: 1fr 1fr; }
@@ -370,6 +374,13 @@ def index() -> Response:
           <input id=\"urlInput\" type=\"text\" placeholder=\"https://open.spotify.com/... or https://youtube.com/...\" />
           <button id=\"startBtn\">Start Download</button>
           <button id=\"cancelBtn\" disabled>Cancel</button>
+        </div>
+      </div>
+
+      <div class=\"row\">
+        <div class=\"controls\" style=\"grid-template-columns: auto 1fr;\">
+          <button id=\"folderBtn\">Select Folder</button>
+          <span id=\"folderLabel\" style=\"color: var(--muted); font-size: 13px;\">No folder selected (files will download as ZIP)</span>
         </div>
       </div>
 
@@ -409,6 +420,8 @@ def index() -> Response:
 
     let currentJobId = null;
     let pollHandle = null;
+    let dirHandle = null;
+    const savedFiles = new Set();
 
     function setBusy(isBusy) {
       startBtn.disabled = isBusy;
@@ -452,6 +465,13 @@ def index() -> Response:
         downloadLink.style.display = "none";
       }
 
+      saveNewFiles(job);
+
+      if (dirHandle) {
+        document.getElementById("folderLabel").textContent =
+          "Saving to: " + dirHandle.name + " (" + savedFiles.size + " saved)";
+      }
+
       setStatusLine("Job " + job.id + " is " + job.status + ".");
     }
 
@@ -476,6 +496,7 @@ def index() -> Response:
       }
 
       setBusy(true);
+      savedFiles.clear();
       downloadLink.style.display = "none";
       logBox.textContent = "Preparing job...";
       setStatusLine("Creating job...");
@@ -518,6 +539,38 @@ def index() -> Response:
         setStatusLine("Could not cancel current job.");
       }
     });
+
+    document.getElementById("folderBtn").addEventListener("click", async () => {
+      if (!window.showDirectoryPicker) {
+        setStatusLine("Your browser does not support folder selection. Use ZIP download.");
+        return;
+      }
+      try {
+        dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+        document.getElementById("folderBtn").classList.add("active");
+        document.getElementById("folderLabel").textContent = "Saving to: " + dirHandle.name;
+        document.getElementById("folderLabel").style.color = "var(--accent)";
+      } catch (e) { /* user cancelled */ }
+    });
+
+    async function saveNewFiles(job) {
+      if (!dirHandle || !job.completedFiles) return;
+      for (const fname of job.completedFiles) {
+        if (savedFiles.has(fname)) continue;
+        savedFiles.add(fname);
+        try {
+          const resp = await fetch("/api/jobs/" + job.id + "/files/" + encodeURIComponent(fname));
+          if (!resp.ok) { savedFiles.delete(fname); continue; }
+          const blob = await resp.blob();
+          const fh = await dirHandle.getFileHandle(fname, { create: true });
+          const w = await fh.createWritable();
+          await w.write(blob);
+          await w.close();
+        } catch (e) {
+          savedFiles.delete(fname);
+        }
+      }
+    }
   </script>
 </body>
 </html>
@@ -570,6 +623,7 @@ def get_job(job_id: str):
                 "failCount": job.fail_count,
                 "logs": list(job.logs),
                 "downloadUrl": download_url,
+                "completedFiles": list(job.completed_files),
             }
         )
 
@@ -605,6 +659,21 @@ def download_zip(job_id: str):
         download_name=f"music-{job_id[:8]}.zip",
         mimetype="application/zip",
     )
+
+
+@app.get("/api/jobs/<job_id>/files/<filename>")
+def get_file(job_id: str, filename: str):
+    if os.sep in filename or "/" in filename or ".." in filename:
+        abort(400)
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if not job:
+            abort(404)
+        work_dir = job.work_dir
+    file_path = os.path.join(work_dir, "downloads", filename)
+    if not os.path.isfile(file_path):
+        abort(404)
+    return send_file(file_path, as_attachment=True, download_name=filename)
 
 
 @app.get("/healthz")
