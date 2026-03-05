@@ -358,8 +358,6 @@ def index() -> Response:
     #statusText { color: var(--muted); font-weight: 600; }
     #folderBtn { background: #6d28d9; color: white; }
     #folderBtn.active { background: #16a34a; }
-    #autoBtn { background: #0369a1; color: white; }
-    #autoBtn.active { background: #16a34a; }
     .folder-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .folder-row span { font-size: 13px; }
     @media (max-width: 900px) {
@@ -385,9 +383,8 @@ def index() -> Response:
       </div>
 
       <div class=\"folder-row\">
-        <button id=\"autoBtn\">Auto-download</button>
         <button id=\"folderBtn\">Custom Folder</button>
-        <span id=\"folderLabel\" style=\"color: var(--muted);\">Choose a save mode or download the ZIP at the end</span>
+        <span id=\"folderLabel\" style=\"color: var(--muted);\">Files auto-save to Downloads</span>
       </div>
 
       <div class=\"stats\">
@@ -427,7 +424,7 @@ def index() -> Response:
     let currentJobId = null;
     let pollHandle = null;
     let dirHandle = null;
-    let autoDownload = false;
+    let autoDownload = true;
     const savedFiles = new Set();
 
     function setBusy(isBusy) {
@@ -542,34 +539,20 @@ def index() -> Response:
       }
     });
 
-    document.getElementById("autoBtn").addEventListener("click", () => {
-      autoDownload = !autoDownload;
-      dirHandle = null;
-      document.getElementById("folderBtn").classList.remove("active");
-      if (autoDownload) {
-        document.getElementById("autoBtn").classList.add("active");
-        document.getElementById("folderLabel").textContent = "Auto-download ON — files save to your Downloads folder";
-        document.getElementById("folderLabel").style.color = "var(--accent)";
-      } else {
-        document.getElementById("autoBtn").classList.remove("active");
-        document.getElementById("folderLabel").textContent = "Auto-download OFF";
-        document.getElementById("folderLabel").style.color = "var(--muted)";
-      }
-    });
-
     document.getElementById("folderBtn").addEventListener("click", async () => {
       if (!window.showDirectoryPicker) {
-        setStatusLine("Your browser does not support folder selection. Use Auto-download instead.");
+        setStatusLine("Your browser does not support folder selection.");
         return;
       }
       try {
         dirHandle = await window.showDirectoryPicker({ mode: "readwrite", startIn: "downloads" });
         autoDownload = false;
-        document.getElementById("autoBtn").classList.remove("active");
         document.getElementById("folderBtn").classList.add("active");
         document.getElementById("folderLabel").textContent = "Saving to: " + dirHandle.name;
         document.getElementById("folderLabel").style.color = "var(--accent)";
-      } catch (e) { /* user cancelled */ }
+      } catch (e) {
+        /* user cancelled — keep auto-download active */
+      }
     });
 
     function triggerBrowserDownload(url, filename) {
