@@ -432,7 +432,7 @@ def index() -> Response:
       progressFill.style.width = pct + "%";
 
       if (job.logs && job.logs.length > 0) {
-        logBox.textContent = job.logs.join("\n");
+        logBox.textContent = job.logs.join("\\n");
         logBox.scrollTop = logBox.scrollHeight;
       }
 
