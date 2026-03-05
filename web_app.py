@@ -388,7 +388,7 @@ def index() -> Response:
       </div>
 
       <div class=\"stats\">
-        <div class=\"chip\"><div class=\"k\">Estado</div><div class=\"v\" id=\"statStatus\">idle</div></div>
+        <div class=\"chip\"><div class=\"k\">Estado</div><div class=\"v\" id=\"statStatus\">Inactivo</div></div>
         <div class=\"chip\"><div class=\"k\">Total</div><div class=\"v\" id=\"statTotal\">0</div></div>
         <div class=\"chip\"><div class=\"k\">Procesados</div><div class=\"v\" id=\"statProcessed\">0</div></div>
         <div class=\"chip\"><div class=\"k\">Éxito</div><div class=\"v\" id=\"statSuccess\">0</div></div>
