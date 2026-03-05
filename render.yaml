@@ -1,18 +1,23 @@
-# render.yaml — Configuración de despliegue automático en Render.com
-# Render detecta este archivo y configura el servicio automáticamente.
-
 services:
   - type: web
-    name: music-downloader
-    runtime: python
-    buildCommand: chmod +x build.sh && ./build.sh
-    startCommand: PATH="$HOME/ffmpeg:$PATH" gunicorn web_app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 600
+    name: musicdownloader-web
+    env: python
+    buildCommand: bash build.sh
+    startCommand: gunicorn web_app:app
     envVars:
       - key: PYTHON_VERSION
-        value: "3.13.0"
+        value: 3.11.11
       - key: SPOTIFY_CLIENT_ID
-        sync: false      # Se configura manualmente en el dashboard
+        sync: false
       - key: SPOTIFY_CLIENT_SECRET
         sync: false
       - key: DEEZER_ARL
         sync: false
+      - key: SLSKD_API_URL
+        value: http://localhost:5030
+      - key: SLSKD_API_KEY
+        sync: false
+      - key: JOB_TTL_SECONDS
+        value: "21600"
+      - key: MAX_TRACKS_PER_JOB
+        value: "250"

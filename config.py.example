@@ -1,30 +1,15 @@
-# ============================================================================
-# CONFIGURACIÓN DE CREDENCIALES — EJEMPLO
-# ============================================================================
-# Copia este archivo como "config.py" y rellena tus credenciales.
-# ⚠️ NUNCA subas config.py a GitHub (está en .gitignore).
-#
-# En la nube (Render/Railway): configura Variables de Entorno con estos
-# mismos nombres en el dashboard del servicio.
-# ============================================================================
+# Copy this file to config.py ONLY for local development.
+# Production deployment should use environment variables.
 
-import os
+SPOTIFY_CLIENT_ID = ""
+SPOTIFY_CLIENT_SECRET = ""
+DEEZER_ARL = ""
+SLSKD_API_URL = "http://localhost:5030"
+SLSKD_API_KEY = ""
 
-# ---------------------------------------------------------------------------
-# SPOTIFY API  —  https://developer.spotify.com/dashboard
-# ---------------------------------------------------------------------------
-SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID", "")
-SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", "")
-
-# ---------------------------------------------------------------------------
-# DEEZER ARL  —  Cookie "arl" de deezer.com (F12 → Cookies)
-# ---------------------------------------------------------------------------
-DEEZER_ARL = os.environ.get("DEEZER_ARL", "")
-
-# ---------------------------------------------------------------------------
-# SOULSEEK (opcional)  —  https://github.com/slskd/slskd
-# ---------------------------------------------------------------------------
-SOULSEEK_USERNAME = os.environ.get("SOULSEEK_USERNAME", "")
-SOULSEEK_PASSWORD = os.environ.get("SOULSEEK_PASSWORD", "")
-SLSKD_API_URL = os.environ.get("SLSKD_API_URL", "http://localhost:5030")
-SLSKD_API_KEY = os.environ.get("SLSKD_API_KEY", "")
+# Optional web settings
+DOWNLOAD_WORKDIR = "tmp_downloads"
+JOB_TTL_SECONDS = "21600"
+MAX_LOG_LINES = "600"
+MAX_TRACKS_PER_JOB = "250"
+PORT = "5000"

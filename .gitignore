@@ -34,3 +34,6 @@ config.py
 *.opus
 *.ogg
 *.webm
+
+# Runtime web
+tmp_downloads/

@@ -1,501 +1,620 @@
-"""
-web_app.py — Versión web de Music Downloader.
-
-Usa Flask como servidor + Server-Sent Events (SSE) para enviar logs
-en tiempo real al navegador. Los archivos descargados se almacenan
-en una carpeta temporal del servidor y luego se sirven como descarga
-al usuario a través del navegador.
-
-Ejecutar:
-    python web_app.py
-
-Luego abrir:  http://localhost:5000
-Para exponer a internet: usar ngrok, Cloudflare Tunnel, o desplegar en un VPS.
-"""
-
 import os
-import re
-import uuid
 import shutil
 import threading
-import tempfile
-import zipfile
 import time
-from queue import Queue, Empty
+import uuid
+import zipfile
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import (
-    Flask,
-    render_template,
-    request,
-    jsonify,
-    Response,
-    send_file,
-    abort,
+from flask import Flask, Response, abort, jsonify, request, send_file
+
+from downloader import download_track, get_youtube_info, is_youtube_url
+from settings import (
+    DEEZER_ARL,
+    DOWNLOAD_WORKDIR,
+    JOB_TTL_SECONDS,
+    MAX_LOG_LINES,
+    MAX_TRACKS_PER_JOB,
+    PORT,
+    SLSKD_API_KEY,
+    SLSKD_API_URL,
+    SPOTIFY_CLIENT_ID,
+    SPOTIFY_CLIENT_SECRET,
 )
+from spotify_utils import get_tracks_from_spotify_url, is_spotify_url
 
-# ── Credenciales: leer de variables de entorno (obligatorio en Render) ──
-# En local, intenta importar config.py; en la nube, usa env vars.
-try:
-    from config import (
-        SPOTIFY_CLIENT_ID,
-        SPOTIFY_CLIENT_SECRET,
-        DEEZER_ARL,
-        SLSKD_API_URL,
-        SLSKD_API_KEY,
-    )
-except ImportError:
-    SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID", "")
-    SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", "")
-    DEEZER_ARL = os.environ.get("DEEZER_ARL", "")
-    SLSKD_API_URL = os.environ.get("SLSKD_API_URL", "")
-    SLSKD_API_KEY = os.environ.get("SLSKD_API_KEY", "")
+BASE_DIR = Path(__file__).resolve().parent
+WORK_DIR = BASE_DIR / DOWNLOAD_WORKDIR
+WORK_DIR.mkdir(parents=True, exist_ok=True)
 
-from spotify_utils import is_spotify_url, get_tracks_from_spotify_url
-from downloader import (
-    download_track,
-    is_youtube_url,
-    get_youtube_info,
-)
+AUDIO_EXTENSIONS = {".m4a", ".opus", ".ogg", ".webm", ".mp3", ".flac", ".wav"}
 
-# ═══════════════════════════════════════════════════════════════════════
-# APP FLASK
-# ═══════════════════════════════════════════════════════════════════════
+
+@dataclass
+class DownloadJob:
+    id: str
+    url: str
+    status: str = "queued"
+    created_at: str = field(default_factory=lambda: _utc_now())
+    finished_at: str = ""
+    stop_requested: bool = False
+    total_tracks: int = 0
+    processed_tracks: int = 0
+    success_count: int = 0
+    fail_count: int = 0
+    logs: list[str] = field(default_factory=list)
+    work_dir: str = ""
+    zip_path: str = ""
+
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2 MB máx. para uploads
-
-# ── Detectar si estamos en la nube (Render) o en local ──
-IS_RENDER = bool(os.environ.get("RENDER"))  # Render establece RENDER=true
-IS_LOCAL = not IS_RENDER
-
-# ── Asegurar que ffmpeg esté en el PATH (para Render) ──
-_ffmpeg_home = os.path.join(os.path.expanduser("~"), "ffmpeg")
-if os.path.isdir(_ffmpeg_home):
-    os.environ["PATH"] = _ffmpeg_home + os.pathsep + os.environ.get("PATH", "")
-
-# Almacén en memoria de sesiones de descarga activas
-# Clave: job_id (str) → Valor: dict con estado y cola de mensajes
-_jobs: dict[str, dict] = {}
-
-# Carpeta base para almacenar descargas temporales del servidor
-DOWNLOADS_BASE = os.path.join(tempfile.gettempdir(), "musicdl_web")
-os.makedirs(DOWNLOADS_BASE, exist_ok=True)
-
-# Carpeta para almacenar el archivo de cookies subido
-COOKIES_DIR = os.path.join(DOWNLOADS_BASE, "_cookies")
-os.makedirs(COOKIES_DIR, exist_ok=True)
-COOKIES_FILE = os.path.join(COOKIES_DIR, "cookies.txt")  # ruta fija
+_jobs_lock = threading.RLock()
+_jobs: dict[str, DownloadJob] = {}
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# RUTAS — PÁGINAS
-# ═══════════════════════════════════════════════════════════════════════
-
-@app.route("/")
-def index():
-    """Página principal con la interfaz del downloader."""
-    return render_template("index.html")
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
-@app.route("/health")
-def health():
-    """Endpoint de salud — para verificar que la app funciona en Render."""
-    import shutil
-    ffmpeg_ok = shutil.which("ffmpeg") is not None
-    return jsonify({
-        "status": "ok",
-        "ffmpeg": ffmpeg_ok,
-        "spotify_configured": bool(SPOTIFY_CLIENT_ID),
-        "deezer_configured": bool(DEEZER_ARL),
-    })
+def _add_log(job: DownloadJob, message: str) -> None:
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    with _jobs_lock:
+        job.logs.append(f"[{timestamp}] {message}")
+        if len(job.logs) > MAX_LOG_LINES:
+            job.logs[:] = job.logs[-MAX_LOG_LINES:]
 
 
-@app.route("/api/environment")
-def api_environment():
-    """
-    Informa al frontend si estamos en local o en la nube.
-    El JS usa esto para mostrar/ocultar controles apropiados.
-    """
-    return jsonify({
-        "is_local": IS_LOCAL,
-        "is_render": IS_RENDER,
-    })
+def _resolve_tracks(url: str) -> list[dict]:
+    if is_spotify_url(url):
+        return get_tracks_from_spotify_url(
+            url,
+            client_id=SPOTIFY_CLIENT_ID,
+            client_secret=SPOTIFY_CLIENT_SECRET,
+        )
+
+    if is_youtube_url(url):
+        return get_youtube_info(url)
+
+    return [
+        {
+            "title": "Unknown",
+            "artist": "Unknown",
+            "album": "",
+            "track_number": 0,
+            "cover_url": "",
+            "isrc": None,
+            "youtube_url": url,
+        }
+    ]
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# RUTAS — API
-# ═══════════════════════════════════════════════════════════════════════
-
-@app.route("/api/download", methods=["POST"])
-def api_start_download():
-    """
-    Inicia una descarga asíncrona.
-    Body JSON: {"url": "https://...", "dest_folder": "/ruta/opcional"}
-    Retorna: {"job_id": "uuid-..."}
-    """
-    data = request.get_json(force=True)
-    url = (data.get("url") or "").strip()
-    custom_dest = (data.get("dest_folder") or "").strip()
-
-    if not url:
-        return jsonify({"error": "Falta la URL"}), 400
-
-    # Crear job
-    job_id = str(uuid.uuid4())[:12]
-
-    # Carpeta destino: la personalizada (si es válida) o la temporal por defecto
-    if custom_dest and os.path.isdir(custom_dest):
-        job_folder = custom_dest
-        use_custom_dest = True
-    else:
-        job_folder = os.path.join(DOWNLOADS_BASE, job_id)
-        os.makedirs(job_folder, exist_ok=True)
-        use_custom_dest = False
-
-    job = {
-        "id": job_id,
-        "url": url,
-        "folder": job_folder,
-        "queue": Queue(),         # Cola de mensajes SSE
-        "status": "running",      # running | done | error | stopped
-        "files": [],              # Archivos descargados
-        "created_at": time.time(),
-        "stop_requested": False,  # Señal de parada
-        "custom_dest": use_custom_dest,
-    }
-    _jobs[job_id] = job
-
-    # Lanzar descarga en hilo
-    thread = threading.Thread(
-        target=_download_worker,
-        args=(job,),
-        daemon=True,
-    )
-    thread.start()
-
-    return jsonify({"job_id": job_id})
+def _list_audio_files(folder: Path) -> list[Path]:
+    files: list[Path] = []
+    for file_path in folder.iterdir():
+        if file_path.is_file() and file_path.suffix.lower() in AUDIO_EXTENSIONS:
+            files.append(file_path)
+    return sorted(files)
 
 
-@app.route("/api/stop/<job_id>", methods=["POST"])
-def api_stop_download(job_id: str):
-    """Solicita la parada de un job en curso."""
-    job = _jobs.get(job_id)
-    if not job:
-        abort(404)
-
-    job["stop_requested"] = True
-    return jsonify({"ok": True, "message": "Parada solicitada"})
+def _create_zip(files: list[Path], destination_zip: Path) -> None:
+    with zipfile.ZipFile(destination_zip, mode="w", compression=zipfile.ZIP_DEFLATED) as zipf:
+        for file_path in files:
+            zipf.write(file_path, arcname=file_path.name)
 
 
-@app.route("/api/browse-folder", methods=["POST"])
-def api_browse_folder():
-    """
-    Abre el explorador de archivos nativo (tkinter) para seleccionar
-    una carpeta. Solo funciona cuando el servidor corre en local.
-    """
-    if IS_RENDER:
-        return jsonify({"folder": "", "error": "No disponible en la nube"}), 400
+def _run_job(job_id: str) -> None:
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if not job:
+            return
+        job.status = "running"
 
-    selected = _open_folder_dialog()
-    return jsonify({"folder": selected or ""})
-
-
-def _open_folder_dialog() -> str:
-    """Abre un diálogo nativo de selección de carpeta usando tkinter."""
-    result = {"path": ""}
-
-    def _run():
-        try:
-            import tkinter as tk
-            from tkinter import filedialog
-            root = tk.Tk()
-            root.withdraw()            # Ocultar ventana principal
-            root.attributes("-topmost", True)  # Traer al frente
-            folder = filedialog.askdirectory(
-                title="Seleccionar Carpeta / Pendrive",
-            )
-            result["path"] = folder or ""
-            root.destroy()
-        except Exception:
-            result["path"] = ""
-
-    # tkinter necesita correr en un hilo separado si Flask corre en otro
-    t = threading.Thread(target=_run)
-    t.start()
-    t.join(timeout=120)  # Máximo 2 minutos para que el usuario elija
-    return result["path"]
-
-
-@app.route("/api/stream/<job_id>")
-def api_stream(job_id: str):
-    """
-    Endpoint SSE — envía los mensajes de log en tiempo real.
-    El frontend se conecta aquí con EventSource.
-    """
-    job = _jobs.get(job_id)
-    if not job:
-        abort(404)
-
-    def event_stream():
-        while True:
-            try:
-                msg = job["queue"].get(timeout=30)
-            except Empty:
-                # Enviar keepalive para mantener la conexión
-                yield ":\n\n"
-                continue
-
-            if msg is None:
-                # Señal de fin
-                yield f"event: done\ndata: {job['status']}\n\n"
-                break
-
-            # Escapar saltos de línea para SSE
-            safe = msg.replace("\n", "\\n")
-            yield f"data: {safe}\n\n"
-
-    return Response(
-        event_stream(),
-        mimetype="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
-    )
-
-
-@app.route("/api/files/<job_id>")
-def api_list_files(job_id: str):
-    """Lista los archivos descargados de un job."""
-    job = _jobs.get(job_id)
-    if not job:
-        abort(404)
-
-    files = []
-    for f in job.get("files", []):
-        if os.path.exists(f):
-            files.append({
-                "name": os.path.basename(f),
-                "size_mb": round(os.path.getsize(f) / (1024 * 1024), 2),
-            })
-    return jsonify({"files": files, "status": job["status"]})
-
-
-@app.route("/api/download-file/<job_id>/<filename>")
-def api_download_file(job_id: str, filename: str):
-    """Descarga un archivo individual al navegador del usuario."""
-    job = _jobs.get(job_id)
-    if not job:
-        abort(404)
-
-    filepath = os.path.join(job["folder"], filename)
-    if not os.path.exists(filepath):
-        abort(404)
-
-    return send_file(
-        filepath,
-        as_attachment=True,
-        download_name=filename,
-    )
-
-
-@app.route("/api/download-zip/<job_id>")
-def api_download_zip(job_id: str):
-    """Empaqueta todos los archivos del job en un ZIP y lo envía."""
-    job = _jobs.get(job_id)
-    if not job or not job.get("files"):
-        abort(404)
-
-    zip_path = os.path.join(job["folder"], f"MusicDownloader_{job_id}.zip")
-
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for f in job["files"]:
-            if os.path.exists(f):
-                zf.write(f, os.path.basename(f))
-
-    return send_file(
-        zip_path,
-        as_attachment=True,
-        download_name=f"MusicDownloader_{job_id}.zip",
-    )
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# WORKER DE DESCARGA (corre en hilo)
-# ═══════════════════════════════════════════════════════════════════════
-
-def _download_worker(job: dict):
-    """Ejecuta la cadena completa de descarga."""
-    q: Queue = job["queue"]
-    url = job["url"]
-    dest = job["folder"]
-
-    # Cookies: automáticas según entorno
-    cookies_file = COOKIES_FILE if os.path.isfile(COOKIES_FILE) else ""
-    # En LOCAL: intentar múltiples navegadores en orden (brave, chrome, edge, firefox)
-    # En RENDER: extractor_args en downloader.py + player_skip evita detección de bots
-    cookies_browser = "brave,chrome,edge,firefox" if IS_LOCAL else ""
-
-    def log(msg: str):
-        q.put(msg)
+    _add_log(job, f"Starting download for URL: {job.url}")
 
     try:
-        tracks = []
-
-        # ── 1. Analizar URL ────────────────────────────────────────
-        if is_spotify_url(url):
-            log("🔗 Enlace de Spotify detectado — Extrayendo metadatos…")
-            try:
-                tracks = get_tracks_from_spotify_url(
-                    url,
-                    client_id=SPOTIFY_CLIENT_ID,
-                    client_secret=SPOTIFY_CLIENT_SECRET,
-                )
-            except Exception as e:
-                log(f"❌ Error Spotify: {e}")
-                log("↪ Se intentará con yt-dlp directamente…")
-                tracks = [{
-                    "title": "Desconocido",
-                    "artist": "Desconocido",
-                    "album": "",
-                    "track_number": 0,
-                    "cover_url": "",
-                    "isrc": None,
-                    "youtube_url": url,
-                }]
-
-        elif is_youtube_url(url):
-            log("🔗 Enlace de YouTube detectado…")
-            try:
-                tracks = get_youtube_info(url, cookies_file=cookies_file, cookies_from_browser=cookies_browser)
-            except Exception as e:
-                log(f"❌ Error YouTube: {e}")
-                tracks = [{
-                    "title": "Desconocido",
-                    "artist": "Desconocido",
-                    "album": "",
-                    "track_number": 0,
-                    "cover_url": "",
-                    "isrc": None,
-                    "youtube_url": url,
-                }]
-        else:
-            log("🔗 URL genérica — se pasará a yt-dlp.")
-            tracks = [{
-                "title": "Desconocido",
-                "artist": "Desconocido",
-                "album": "",
-                "track_number": 0,
-                "cover_url": "",
-                "isrc": None,
-                "youtube_url": url,
-            }]
-
-        if not tracks:
-            log("⚠️ No se encontraron canciones.")
-            job["status"] = "error"
-            q.put(None)
+        tracks_to_download = _resolve_tracks(job.url)
+        if not tracks_to_download:
+            _add_log(job, "No tracks were found for this URL.")
+            with _jobs_lock:
+                job.status = "failed"
             return
 
-        total = len(tracks)
-        log(f"📋 {total} canción(es) en cola.\n")
+        if len(tracks_to_download) > MAX_TRACKS_PER_JOB:
+            _add_log(
+                job,
+                f"Track list capped to {MAX_TRACKS_PER_JOB} items for this job.",
+            )
+            tracks_to_download = tracks_to_download[:MAX_TRACKS_PER_JOB]
 
-        # ── 2. Descargar cada pista ────────────────────────────────
-        ok = 0
-        fail = 0
-        for i, track in enumerate(tracks, 1):
-            # ── Comprobar parada solicitada ──
-            if job.get("stop_requested"):
-                log("\n⛔ Descarga detenida por el usuario.")
-                job["status"] = "stopped"
-                break
+        with _jobs_lock:
+            job.total_tracks = len(tracks_to_download)
 
-            label = f"{track.get('artist', '?')} — {track.get('title', '?')}"
-            log(f"── [{i}/{total}] {label} ──")
+        output_dir = Path(job.work_dir) / "downloads"
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-            try:
-                result = download_track(
-                    title=track.get("title", "Unknown"),
-                    artist=track.get("artist", "Unknown"),
-                    album=track.get("album", ""),
-                    dest_folder=dest,
-                    cover_url=track.get("cover_url", ""),
-                    track_number=track.get("track_number", 0),
-                    isrc=track.get("isrc"),
-                    youtube_url=track.get("youtube_url"),
-                    deezer_arl=DEEZER_ARL,
-                    slskd_api_url=SLSKD_API_URL,
-                    slskd_api_key=SLSKD_API_KEY,
-                    log_callback=log,
-                    cookies_file=cookies_file,
-                    cookies_from_browser=cookies_browser,
-                )
-                if result and os.path.exists(result):
-                    job["files"].append(result)
-                    ok += 1
+        for index, track in enumerate(tracks_to_download, start=1):
+            with _jobs_lock:
+                if job.stop_requested:
+                    job.status = "cancelled"
+                    _add_log(job, "Cancellation requested by user.")
+                    break
+
+            _add_log(
+                job,
+                f"Processing track {index}/{len(tracks_to_download)}: "
+                f"{track.get('artist', 'Unknown')} - {track.get('title', 'Unknown')}",
+            )
+
+            success = download_track(
+                title=track.get("title", "Unknown"),
+                artist=track.get("artist", "Unknown"),
+                album=track.get("album", ""),
+                dest_folder=str(output_dir),
+                cover_url=track.get("cover_url", ""),
+                track_number=track.get("track_number", 0),
+                isrc=track.get("isrc"),
+                youtube_url=track.get("youtube_url"),
+                deezer_arl=DEEZER_ARL,
+                slskd_api_url=SLSKD_API_URL,
+                slskd_api_key=SLSKD_API_KEY,
+                log_callback=lambda msg: _add_log(job, msg),
+            )
+
+            with _jobs_lock:
+                job.processed_tracks += 1
+                if success:
+                    job.success_count += 1
                 else:
-                    fail += 1
-            except Exception as e:
-                log(f"❌ Error: {e}")
-                fail += 1
+                    job.fail_count += 1
 
-        # ── 3. Resumen ────────────────────────────────────────────
-        if job["status"] != "stopped":
-            log(f"\n🏁 Listo — ✅ {ok}/{total}" + (f"  ❌ {fail} errores" if fail else ""))
-            job["status"] = "done" if ok > 0 else "error"
+        audio_files = _list_audio_files(output_dir)
+        if audio_files:
+            zip_path = Path(job.work_dir) / "music.zip"
+            _create_zip(audio_files, zip_path)
+            with _jobs_lock:
+                job.zip_path = str(zip_path)
+            _add_log(job, f"ZIP package created with {len(audio_files)} file(s).")
         else:
-            log(f"\n🏁 Detenido — ✅ {ok} descargado(s)")
+            _add_log(job, "No output audio files found to package.")
 
-        # Si el usuario eligió carpeta personalizada, indicar ruta
-        if job.get("custom_dest") and ok > 0:
-            log(f"📂 Archivos guardados en: {dest}")
+        with _jobs_lock:
+            if job.status == "running":
+                job.status = "completed" if job.success_count > 0 else "failed"
 
-    except Exception as e:
-        log(f"\n❌ Error crítico: {e}")
-        job["status"] = "error"
+    except Exception as exc:
+        _add_log(job, f"Critical error: {exc}")
+        with _jobs_lock:
+            job.status = "failed"
 
     finally:
-        q.put(None)  # Señal de fin para SSE
+        with _jobs_lock:
+            job.finished_at = _utc_now()
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# LIMPIEZA PERIÓDICA (elimina jobs viejos > 1 hora)
-# ═══════════════════════════════════════════════════════════════════════
-
-def _cleanup_old_jobs():
-    """Elimina carpetas de descargas con más de 1 hora."""
+def _cleanup_loop() -> None:
     while True:
-        time.sleep(600)  # Cada 10 minutos
+        time.sleep(300)
         now = time.time()
-        to_delete = []
-        for jid, job in list(_jobs.items()):
-            if now - job.get("created_at", now) > 3600:
-                to_delete.append(jid)
 
-        for jid in to_delete:
-            job = _jobs.pop(jid, None)
-            if job and os.path.isdir(job.get("folder", "")):
+        with _jobs_lock:
+            removable_ids = []
+            for job_id, job in _jobs.items():
+                if not job.finished_at:
+                    continue
+
                 try:
-                    shutil.rmtree(job["folder"])
+                    finished_epoch = datetime.fromisoformat(job.finished_at).timestamp()
+                except Exception:
+                    finished_epoch = now
+
+                if now - finished_epoch > JOB_TTL_SECONDS:
+                    removable_ids.append(job_id)
+
+            for job_id in removable_ids:
+                job = _jobs.pop(job_id)
+                try:
+                    shutil.rmtree(job.work_dir, ignore_errors=True)
                 except Exception:
                     pass
 
 
-# Lanzar limpieza en hilo daemon
-threading.Thread(target=_cleanup_old_jobs, daemon=True).start()
+@app.get("/")
+def index() -> Response:
+    html = """<!doctype html>
+<html lang=\"en\">
+<head>
+  <meta charset=\"utf-8\" />
+  <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\" />
+  <title>MusicDownloader Web</title>
+  <style>
+    :root {
+      --bg0: #faf5ef;
+      --bg1: #f0e4d5;
+      --card: #fffaf2;
+      --ink: #1d1f21;
+      --muted: #5f6368;
+      --accent: #14532d;
+      --accent-2: #b45309;
+      --danger: #b91c1c;
+      --line: #d6c8b8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+      background: radial-gradient(circle at 10% 10%, var(--bg1), var(--bg0) 55%);
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 16px;
+    }
+    .shell {
+      width: min(980px, 100%);
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 20px 60px rgba(17, 24, 39, 0.12);
+      overflow: hidden;
+    }
+    header {
+      padding: 22px;
+      background: linear-gradient(120deg, #f4e3cb, #e4f5e7);
+      border-bottom: 1px solid var(--line);
+    }
+    h1 {
+      margin: 0;
+      font-size: clamp(24px, 4vw, 36px);
+      letter-spacing: 0.3px;
+    }
+    header p {
+      margin: 8px 0 0;
+      color: var(--muted);
+    }
+    main { padding: 20px; display: grid; gap: 16px; }
+    .row { display: grid; gap: 10px; }
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 10px;
+    }
+    input[type=text] {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+      background: white;
+      font-size: 14px;
+    }
+    button {
+      border: 0;
+      border-radius: 12px;
+      padding: 12px 16px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+    #startBtn { background: var(--accent); color: white; }
+    #cancelBtn { background: var(--danger); color: white; }
+    #cancelBtn[disabled], #startBtn[disabled] { opacity: .5; cursor: not-allowed; }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .chip {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: white;
+      padding: 10px;
+      text-align: center;
+    }
+    .chip .k { color: var(--muted); font-size: 12px; }
+    .chip .v { font-size: 18px; margin-top: 4px; }
+    .progress {
+      height: 10px;
+      background: #efe7dc;
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+    }
+    .progress > span {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      transition: width .35s ease;
+    }
+    pre {
+      margin: 0;
+      min-height: 260px;
+      max-height: 360px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: #111827;
+      color: #d1d5db;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    a.download {
+      display: inline-block;
+      background: #1e3a8a;
+      color: white;
+      text-decoration: none;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-weight: 700;
+    }
+    #statusText { color: var(--muted); font-weight: 600; }
+    @media (max-width: 900px) {
+      .controls { grid-template-columns: 1fr; }
+      .stats { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class=\"shell\">
+    <header>
+      <h1>MusicDownloader Web</h1>
+      <p>Public URL downloads with Spotify, YouTube and YouTube Music support.</p>
+    </header>
+    <main>
+      <div class=\"row\">
+        <label for=\"urlInput\">Paste Spotify or YouTube URL</label>
+        <div class=\"controls\">
+          <input id=\"urlInput\" type=\"text\" placeholder=\"https://open.spotify.com/... or https://youtube.com/...\" />
+          <button id=\"startBtn\">Start Download</button>
+          <button id=\"cancelBtn\" disabled>Cancel</button>
+        </div>
+      </div>
+
+      <div class=\"stats\">
+        <div class=\"chip\"><div class=\"k\">Status</div><div class=\"v\" id=\"statStatus\">idle</div></div>
+        <div class=\"chip\"><div class=\"k\">Total</div><div class=\"v\" id=\"statTotal\">0</div></div>
+        <div class=\"chip\"><div class=\"k\">Processed</div><div class=\"v\" id=\"statProcessed\">0</div></div>
+        <div class=\"chip\"><div class=\"k\">Success</div><div class=\"v\" id=\"statSuccess\">0</div></div>
+        <div class=\"chip\"><div class=\"k\">Fail</div><div class=\"v\" id=\"statFail\">0</div></div>
+      </div>
+
+      <div class=\"progress\"><span id=\"progressFill\"></span></div>
+
+      <div class=\"actions\">
+        <span id=\"statusText\">Ready.</span>
+        <a id=\"downloadLink\" class=\"download\" href=\"#\" style=\"display:none\">Download ZIP</a>
+      </div>
+
+      <pre id=\"logBox\">No logs yet.</pre>
+    </main>
+  </div>
+
+  <script>
+    const urlInput = document.getElementById("urlInput");
+    const startBtn = document.getElementById("startBtn");
+    const cancelBtn = document.getElementById("cancelBtn");
+    const logBox = document.getElementById("logBox");
+    const downloadLink = document.getElementById("downloadLink");
+    const statusText = document.getElementById("statusText");
+
+    const statStatus = document.getElementById("statStatus");
+    const statTotal = document.getElementById("statTotal");
+    const statProcessed = document.getElementById("statProcessed");
+    const statSuccess = document.getElementById("statSuccess");
+    const statFail = document.getElementById("statFail");
+    const progressFill = document.getElementById("progressFill");
+
+    let currentJobId = null;
+    let pollHandle = null;
+
+    function setBusy(isBusy) {
+      startBtn.disabled = isBusy;
+      cancelBtn.disabled = !isBusy;
+    }
+
+    function setStatusLine(text) {
+      statusText.textContent = text;
+    }
+
+    function renderJob(job) {
+      statStatus.textContent = job.status;
+      statTotal.textContent = String(job.totalTracks);
+      statProcessed.textContent = String(job.processedTracks);
+      statSuccess.textContent = String(job.successCount);
+      statFail.textContent = String(job.failCount);
+
+      const pct = job.totalTracks > 0
+        ? Math.round((job.processedTracks / job.totalTracks) * 100)
+        : 0;
+      progressFill.style.width = pct + "%";
+
+      if (job.logs && job.logs.length > 0) {
+        logBox.textContent = job.logs.join("\n");
+        logBox.scrollTop = logBox.scrollHeight;
+      }
+
+      const done = ["completed", "failed", "cancelled"].includes(job.status);
+      if (done) {
+        setBusy(false);
+        if (pollHandle) {
+          clearInterval(pollHandle);
+          pollHandle = null;
+        }
+      }
+
+      if (job.downloadUrl) {
+        downloadLink.href = job.downloadUrl;
+        downloadLink.style.display = "inline-block";
+      } else {
+        downloadLink.style.display = "none";
+      }
+
+      setStatusLine("Job " + job.id + " is " + job.status + ".");
+    }
+
+    async function pollJob(jobId) {
+      try {
+        const res = await fetch(`/api/jobs/${jobId}`);
+        if (!res.ok) {
+          throw new Error("Failed to load job state");
+        }
+        const data = await res.json();
+        renderJob(data);
+      } catch (err) {
+        setStatusLine(err.message);
+      }
+    }
+
+    startBtn.addEventListener("click", async () => {
+      const url = urlInput.value.trim();
+      if (!url) {
+        setStatusLine("Please enter a URL first.");
+        return;
+      }
+
+      setBusy(true);
+      downloadLink.style.display = "none";
+      logBox.textContent = "Preparing job...";
+      setStatusLine("Creating job...");
+
+      try {
+        const res = await fetch("/api/jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || "Could not create job");
+        }
+
+        const data = await res.json();
+        currentJobId = data.id;
+        setStatusLine("Job created: " + currentJobId);
+
+        await pollJob(currentJobId);
+        if (pollHandle) {
+          clearInterval(pollHandle);
+        }
+        pollHandle = setInterval(() => pollJob(currentJobId), 2000);
+      } catch (err) {
+        setBusy(false);
+        setStatusLine(err.message);
+      }
+    });
+
+    cancelBtn.addEventListener("click", async () => {
+      if (!currentJobId) {
+        return;
+      }
+      try {
+        await fetch(`/api/jobs/${currentJobId}/cancel`, { method: "POST" });
+        setStatusLine("Cancellation requested.");
+      } catch (err) {
+        setStatusLine("Could not cancel current job.");
+      }
+    });
+  </script>
+</body>
+</html>
+"""
+    return Response(html, mimetype="text/html")
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# PUNTO DE ENTRADA
-# ═══════════════════════════════════════════════════════════════════════
+@app.post("/api/jobs")
+def create_job():
+    payload = request.get_json(silent=True) or {}
+    url = (payload.get("url") or "").strip()
+    if not url:
+        return jsonify({"error": "URL is required."}), 400
+
+    job_id = uuid.uuid4().hex
+    job_dir = WORK_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    job = DownloadJob(id=job_id, url=url, work_dir=str(job_dir))
+    _add_log(job, "Job queued.")
+
+    with _jobs_lock:
+        _jobs[job_id] = job
+
+    worker = threading.Thread(target=_run_job, args=(job_id,), daemon=True)
+    worker.start()
+
+    return jsonify({"id": job.id, "status": job.status}), 201
+
+
+@app.get("/api/jobs/<job_id>")
+def get_job(job_id: str):
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if not job:
+            return jsonify({"error": "Job not found."}), 404
+
+        download_url = f"/download/{job.id}" if job.zip_path and os.path.exists(job.zip_path) else ""
+
+        return jsonify(
+            {
+                "id": job.id,
+                "url": job.url,
+                "status": job.status,
+                "createdAt": job.created_at,
+                "finishedAt": job.finished_at,
+                "totalTracks": job.total_tracks,
+                "processedTracks": job.processed_tracks,
+                "successCount": job.success_count,
+                "failCount": job.fail_count,
+                "logs": list(job.logs),
+                "downloadUrl": download_url,
+            }
+        )
+
+
+@app.post("/api/jobs/<job_id>/cancel")
+def cancel_job(job_id: str):
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if not job:
+            return jsonify({"error": "Job not found."}), 404
+        if job.status in {"completed", "failed", "cancelled"}:
+            return jsonify({"status": job.status}), 200
+
+        job.stop_requested = True
+
+    return jsonify({"status": "cancelling"}), 202
+
+
+@app.get("/download/<job_id>")
+def download_zip(job_id: str):
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if not job or not job.zip_path:
+            abort(404)
+        zip_path = job.zip_path
+
+    if not os.path.exists(zip_path):
+        abort(404)
+
+    return send_file(
+        zip_path,
+        as_attachment=True,
+        download_name=f"music-{job_id[:8]}.zip",
+        mimetype="application/zip",
+    )
+
+
+@app.get("/healthz")
+def healthz():
+    return jsonify({"ok": True})
+
+
+_cleanup_thread = threading.Thread(target=_cleanup_loop, daemon=True)
+_cleanup_thread.start()
+
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("  🎵 Music Downloader Web")
-    print("  Abrir: http://localhost:5000")
-    print("=" * 60)
-    print()
-    # debug=False para producción; threaded=True para manejar SSE + descargas
-    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
+    app.run(host="0.0.0.0", port=PORT)

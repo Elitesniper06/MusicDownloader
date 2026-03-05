@@ -13,7 +13,7 @@ from tkinter import filedialog
 import customtkinter as ctk
 
 # ── Módulos internos ───────────────────────────────────────────────
-from config import (
+from settings import (
     SPOTIFY_CLIENT_ID,
     SPOTIFY_CLIENT_SECRET,
     DEEZER_ARL,
