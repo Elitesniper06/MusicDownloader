@@ -225,11 +225,11 @@ def _cleanup_loop() -> None:
 @app.get("/")
 def index() -> Response:
     html = """<!doctype html>
-<html lang=\"en\">
+<html lang=\"es\">
 <head>
   <meta charset=\"utf-8\" />
   <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\" />
-  <title>MusicDownloader Web</title>
+  <title>FullCalidad</title>
   <style>
     :root {
       --bg0: #0f1117;
@@ -369,40 +369,40 @@ def index() -> Response:
 <body>
   <div class=\"shell\">
     <header>
-      <h1>MusicDownloader Web</h1>
-      <p>Public URL downloads with Spotify, YouTube and YouTube Music support.</p>
+      <h1>FullCalidad</h1>
+      <p>Descargas de URL públicas con soporte para Spotify, YouTube y YouTube Music.</p>
     </header>
     <main>
       <div class=\"row\">
-        <label for=\"urlInput\">Paste Spotify or YouTube URL</label>
+        <label for=\"urlInput\">Pega la URL de Spotify o YouTube</label>
         <div class=\"controls\">
           <input id=\"urlInput\" type=\"text\" placeholder=\"https://open.spotify.com/... or https://youtube.com/...\" />
-          <button id=\"startBtn\">Start Download</button>
-          <button id=\"cancelBtn\" disabled>Cancel</button>
+          <button id=\"startBtn\">Iniciar Descarga</button>
+          <button id=\"cancelBtn\" disabled>Cancelar</button>
         </div>
       </div>
 
       <div class=\"folder-row\">
-        <button id=\"folderBtn\">Custom Folder</button>
-        <span id=\"folderLabel\" style=\"color: var(--muted);\">Files auto-save to Downloads</span>
+        <button id=\"folderBtn\">Carpeta Personalizada</button>
+        <span id=\"folderLabel\" style=\"color: var(--muted);\">Archivos se guardan automáticamente en Descargas</span>
       </div>
 
       <div class=\"stats\">
-        <div class=\"chip\"><div class=\"k\">Status</div><div class=\"v\" id=\"statStatus\">idle</div></div>
+        <div class=\"chip\"><div class=\"k\">Estado</div><div class=\"v\" id=\"statStatus\">idle</div></div>
         <div class=\"chip\"><div class=\"k\">Total</div><div class=\"v\" id=\"statTotal\">0</div></div>
-        <div class=\"chip\"><div class=\"k\">Processed</div><div class=\"v\" id=\"statProcessed\">0</div></div>
-        <div class=\"chip\"><div class=\"k\">Success</div><div class=\"v\" id=\"statSuccess\">0</div></div>
-        <div class=\"chip\"><div class=\"k\">Fail</div><div class=\"v\" id=\"statFail\">0</div></div>
+        <div class=\"chip\"><div class=\"k\">Procesados</div><div class=\"v\" id=\"statProcessed\">0</div></div>
+        <div class=\"chip\"><div class=\"k\">Éxito</div><div class=\"v\" id=\"statSuccess\">0</div></div>
+        <div class=\"chip\"><div class=\"k\">Fallo</div><div class=\"v\" id=\"statFail\">0</div></div>
       </div>
 
       <div class=\"progress\"><span id=\"progressFill\"></span></div>
 
       <div class=\"actions\">
-        <span id=\"statusText\">Ready.</span>
-        <a id=\"downloadLink\" class=\"download\" href=\"#\" style=\"display:none\">Download ZIP</a>
+        <span id=\"statusText\">Listo.</span>
+        <a id=\"downloadLink\" class=\"download\" href=\"#\" style=\"display:none\">Descargar ZIP</a>
       </div>
 
-      <pre id=\"logBox\">No logs yet.</pre>
+      <pre id=\"logBox\">Sin registros aún.</pre>
     </main>
   </div>
 
@@ -471,14 +471,14 @@ def index() -> Response:
 
       saveNewFiles(job);
 
-      setStatusLine("Job " + job.id + " is " + job.status + ".");
+      setStatusLine("Tarea " + job.id.slice(0,8) + " — " + job.status + ".");
     }
 
     async function pollJob(jobId) {
       try {
         const res = await fetch(`/api/jobs/${jobId}`);
         if (!res.ok) {
-          throw new Error("Failed to load job state");
+          throw new Error("Error al cargar estado de la tarea");
         }
         const data = await res.json();
         renderJob(data);
@@ -490,15 +490,15 @@ def index() -> Response:
     startBtn.addEventListener("click", async () => {
       const url = urlInput.value.trim();
       if (!url) {
-        setStatusLine("Please enter a URL first.");
+        setStatusLine("Pega una URL primero.");
         return;
       }
 
       setBusy(true);
       savedFiles.clear();
       downloadLink.style.display = "none";
-      logBox.textContent = "Preparing job...";
-      setStatusLine("Creating job...");
+      logBox.textContent = "Preparando descarga...";
+      setStatusLine("Creando tarea...");
 
       try {
         const res = await fetch("/api/jobs", {
@@ -509,12 +509,12 @@ def index() -> Response:
 
         if (!res.ok) {
           const errData = await res.json();
-          throw new Error(errData.error || "Could not create job");
+          throw new Error(errData.error || "No se pudo crear la tarea");
         }
 
         const data = await res.json();
         currentJobId = data.id;
-        setStatusLine("Job created: " + currentJobId);
+        setStatusLine("Tarea creada: " + currentJobId);
 
         await pollJob(currentJobId);
         if (pollHandle) {
@@ -533,22 +533,22 @@ def index() -> Response:
       }
       try {
         await fetch(`/api/jobs/${currentJobId}/cancel`, { method: "POST" });
-        setStatusLine("Cancellation requested.");
+        setStatusLine("Cancelación solicitada.");
       } catch (err) {
-        setStatusLine("Could not cancel current job.");
+        setStatusLine("No se pudo cancelar la tarea.");
       }
     });
 
     document.getElementById("folderBtn").addEventListener("click", async () => {
       if (!window.showDirectoryPicker) {
-        setStatusLine("Your browser does not support folder selection.");
+        setStatusLine("Tu navegador no soporta la selección de carpetas.");
         return;
       }
       try {
         dirHandle = await window.showDirectoryPicker({ mode: "readwrite", startIn: "downloads" });
         autoDownload = false;
         document.getElementById("folderBtn").classList.add("active");
-        document.getElementById("folderLabel").textContent = "Saving to: " + dirHandle.name;
+        document.getElementById("folderLabel").textContent = "Guardando en: " + dirHandle.name;
         document.getElementById("folderLabel").style.color = "var(--accent)";
       } catch (e) {
         /* user cancelled — keep auto-download active */
