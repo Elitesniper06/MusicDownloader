@@ -33,22 +33,30 @@ Set these environment variables in your hosting provider:
 
 Do not commit real secrets. Use `config.py.example` only as template.
 
-## 3) Render deploy
+## 3) Railway deploy (alternative to Render)
 
 This project includes:
 
-- `render.yaml`
-- `build.sh`
-- Start command: `gunicorn web_app:app`
+- `Procfile`
+- `railway.json`
+- `nixpacks.toml` (installs `ffmpeg` in build)
+- Start command: `gunicorn web_app:app --bind 0.0.0.0:$PORT`
 
 Deploy steps:
 
 1. Push this repo to GitHub.
-2. In Render, create a **Blueprint** from the repo.
-3. Set secret env vars in Render dashboard.
-4. Deploy.
+2. In Railway, create a new project from your GitHub repo.
+3. In project settings, add required environment variables.
+4. Deploy and open the generated public domain.
 
-## 4) Important runtime notes
+## 4) Render deploy (optional)
+
+This project also supports Render:
+
+- `render.yaml`
+- `build.sh`
+
+## 5) Important runtime notes
 
 - Soulseek (`slskd`) usually runs in private/local networks. In public cloud hosts it may not be reachable unless you expose it securely.
 - Jobs are stored in server disk temporarily (`tmp_downloads`) and auto-cleaned after TTL.
