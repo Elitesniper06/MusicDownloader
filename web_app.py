@@ -232,15 +232,15 @@ def index() -> Response:
   <title>MusicDownloader Web</title>
   <style>
     :root {
-      --bg0: #faf5ef;
-      --bg1: #f0e4d5;
-      --card: #fffaf2;
-      --ink: #1d1f21;
-      --muted: #5f6368;
-      --accent: #14532d;
-      --accent-2: #b45309;
-      --danger: #b91c1c;
-      --line: #d6c8b8;
+      --bg0: #0f1117;
+      --bg1: #1a1d2e;
+      --card: #1e2130;
+      --ink: #e2e4ea;
+      --muted: #8b8fa3;
+      --accent: #22c55e;
+      --accent-2: #f59e0b;
+      --danger: #ef4444;
+      --line: #2e3248;
     }
     * { box-sizing: border-box; }
     body {
@@ -258,18 +258,19 @@ def index() -> Response:
       background: var(--card);
       border: 1px solid var(--line);
       border-radius: 18px;
-      box-shadow: 0 20px 60px rgba(17, 24, 39, 0.12);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
       overflow: hidden;
     }
     header {
       padding: 22px;
-      background: linear-gradient(120deg, #f4e3cb, #e4f5e7);
+      background: linear-gradient(120deg, #1a2233, #162320);
       border-bottom: 1px solid var(--line);
     }
     h1 {
       margin: 0;
       font-size: clamp(24px, 4vw, 36px);
       letter-spacing: 0.3px;
+      color: #f0f2f5;
     }
     header p {
       margin: 8px 0 0;
@@ -287,9 +288,11 @@ def index() -> Response:
       border: 1px solid var(--line);
       border-radius: 12px;
       padding: 12px 14px;
-      background: white;
+      background: #161829;
+      color: var(--ink);
       font-size: 14px;
     }
+    input[type=text]::placeholder { color: var(--muted); }
     button {
       border: 0;
       border-radius: 12px;
@@ -308,7 +311,7 @@ def index() -> Response:
     .chip {
       border: 1px solid var(--line);
       border-radius: 12px;
-      background: white;
+      background: #161829;
       padding: 10px;
       text-align: center;
     }
@@ -316,7 +319,7 @@ def index() -> Response:
     .chip .v { font-size: 18px; margin-top: 4px; }
     .progress {
       height: 10px;
-      background: #efe7dc;
+      background: #161829;
       border-radius: 999px;
       overflow: hidden;
       border: 1px solid var(--line);
@@ -336,8 +339,8 @@ def index() -> Response:
       border: 1px solid var(--line);
       border-radius: 12px;
       padding: 12px;
-      background: #111827;
-      color: #d1d5db;
+      background: #0c0e1a;
+      color: #9ca3af;
       font-family: Consolas, "Courier New", monospace;
       font-size: 12px;
       line-height: 1.4;
@@ -345,7 +348,7 @@ def index() -> Response:
     .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     a.download {
       display: inline-block;
-      background: #1e3a8a;
+      background: #3b82f6;
       color: white;
       text-decoration: none;
       border-radius: 10px;
@@ -353,10 +356,12 @@ def index() -> Response:
       font-weight: 700;
     }
     #statusText { color: var(--muted); font-weight: 600; }
-    #folderBtn { background: #4338ca; color: white; }
+    #folderBtn { background: #6d28d9; color: white; }
     #folderBtn.active { background: #16a34a; }
     #autoBtn { background: #0369a1; color: white; }
     #autoBtn.active { background: #16a34a; }
+    .folder-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .folder-row span { font-size: 13px; }
     @media (max-width: 900px) {
       .controls { grid-template-columns: 1fr; }
       .stats { grid-template-columns: 1fr 1fr; }
@@ -379,12 +384,10 @@ def index() -> Response:
         </div>
       </div>
 
-      <div class=\"row\">
-        <div class=\"controls\" style=\"grid-template-columns: auto auto 1fr;\">
-          <button id=\"autoBtn\">Auto-download</button>
-          <button id=\"folderBtn\">Custom Folder</button>
-          <span id=\"folderLabel\" style=\"color: var(--muted); font-size: 13px;\">Click Auto-download to save to your Downloads folder, or Custom Folder for another location</span>
-        </div>
+      <div class=\"folder-row\">
+        <button id=\"autoBtn\">Auto-download</button>
+        <button id=\"folderBtn\">Custom Folder</button>
+        <span id=\"folderLabel\" style=\"color: var(--muted);\">Choose a save mode or download the ZIP at the end</span>
       </div>
 
       <div class=\"stats\">
@@ -470,14 +473,6 @@ def index() -> Response:
       }
 
       saveNewFiles(job);
-
-      if (dirHandle) {
-        document.getElementById("folderLabel").textContent =
-          "Saving to: " + dirHandle.name + " (" + savedFiles.size + " saved)";
-      } else if (autoDownload) {
-        document.getElementById("folderLabel").textContent =
-          "Auto-downloading to browser Downloads (" + savedFiles.size + " saved)";
-      }
 
       setStatusLine("Job " + job.id + " is " + job.status + ".");
     }
