@@ -25,6 +25,9 @@ desktop.ini
 # ⚠️ NUNCA subir config.py con credenciales reales
 config.py
 
+# ⚠️ Cookies de YouTube (contienen sesión de Google)
+cookies.txt
+
 # Archivos temporales de descarga
 *.flac
 *.mp3
