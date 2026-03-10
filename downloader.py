@@ -381,6 +381,8 @@ def plan_b_download(
             },
         ],
         "prefer_ffmpeg": True,
+        # Simular cliente Android Music para evitar detección de bots
+        "extractor_args": {"youtube": {"player_client": ["android_music"]}},
         # Metadatos que yt-dlp pasará a FFmpeg
         "parse_metadata": [
             f":{_escape_metadata(title)}:%(meta_title)s",
