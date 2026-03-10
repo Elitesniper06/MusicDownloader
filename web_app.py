@@ -113,12 +113,12 @@ def _run_job(job_id: str) -> None:
             return
         job.status = "running"
 
-    _add_log(job, f"Starting download for URL: {job.url}")
+    _add_log(job, f"Iniciando descarga para URL: {job.url}")
 
     try:
         tracks_to_download = _resolve_tracks(job.url)
         if not tracks_to_download:
-            _add_log(job, "No tracks were found for this URL.")
+            _add_log(job, "No se encontraron pistas para esta URL.")
             with _jobs_lock:
                 job.status = "failed"
             return
@@ -126,7 +126,7 @@ def _run_job(job_id: str) -> None:
         if len(tracks_to_download) > MAX_TRACKS_PER_JOB:
             _add_log(
                 job,
-                f"Track list capped to {MAX_TRACKS_PER_JOB} items for this job.",
+                f"Lista de pistas limitada a {MAX_TRACKS_PER_JOB} elementos.",
             )
             tracks_to_download = tracks_to_download[:MAX_TRACKS_PER_JOB]
 
@@ -140,13 +140,13 @@ def _run_job(job_id: str) -> None:
             with _jobs_lock:
                 if job.stop_requested:
                     job.status = "cancelled"
-                    _add_log(job, "Cancellation requested by user.")
+                    _add_log(job, "Cancelación solicitada por el usuario.")
                     break
 
             _add_log(
                 job,
-                f"Processing track {index}/{len(tracks_to_download)}: "
-                f"{track.get('artist', 'Unknown')} - {track.get('title', 'Unknown')}",
+                f"Procesando pista {index}/{len(tracks_to_download)}: "
+                f"{track.get('artist', 'Desconocido')} - {track.get('title', 'Desconocido')}",
             )
 
             result_path = download_track(
@@ -187,16 +187,16 @@ def _run_job(job_id: str) -> None:
             _create_zip(audio_files, zip_path)
             with _jobs_lock:
                 job.zip_path = str(zip_path)
-            _add_log(job, f"ZIP package created with {len(audio_files)} file(s).")
+            _add_log(job, f"Paquete ZIP creado con {len(audio_files)} archivo(s).")
         else:
-            _add_log(job, "No output audio files found to package.")
+            _add_log(job, "No se encontraron archivos de audio para empaquetar.")
 
         with _jobs_lock:
             if job.status == "running":
                 job.status = "completed" if job.success_count > 0 else "failed"
 
     except Exception as exc:
-        _add_log(job, f"Critical error: {exc}")
+        _add_log(job, f"Error crítico: {exc}")
         with _jobs_lock:
             job.status = "failed"
 
@@ -436,7 +436,7 @@ def index() -> Response:
       <div class=\"row\">
         <label for=\"urlInput\">Pega la URL de Spotify o YouTube</label>
         <div class=\"controls\">
-          <input id=\"urlInput\" type=\"text\" placeholder=\"https://open.spotify.com/... or https://youtube.com/...\" />
+          <input id=\"urlInput\" type=\"text\" placeholder=\"https://open.spotify.com/... o https://youtube.com/...\" />
           <button id=\"startBtn\">Iniciar Descarga</button>
           <button id=\"cancelBtn\" disabled>Cancelar</button>
         </div>
@@ -503,8 +503,16 @@ def index() -> Response:
       statusText.textContent = text;
     }
 
+    const statusMap = {
+      "queued": "En cola",
+      "running": "Descargando",
+      "completed": "Completado",
+      "failed": "Fallido",
+      "cancelled": "Cancelado"
+    };
+
     function renderJob(job) {
-      statStatus.textContent = job.status;
+      statStatus.textContent = statusMap[job.status] || job.status;
       statTotal.textContent = String(job.totalTracks);
       statProcessed.textContent = String(job.processedTracks);
       statSuccess.textContent = String(job.successCount);
@@ -667,7 +675,7 @@ def create_job():
     payload = request.get_json(silent=True) or {}
     url = (payload.get("url") or "").strip()
     if not url:
-        return jsonify({"error": "URL is required."}), 400
+        return jsonify({"error": "La URL es obligatoria."}), 400
 
     job_id = uuid.uuid4().hex
     job_dir = WORK_DIR / job_id
@@ -675,7 +683,7 @@ def create_job():
 
     convert_mp3_flag = bool(payload.get("convert_mp3", False))
     job = DownloadJob(id=job_id, url=url, work_dir=str(job_dir), convert_mp3=convert_mp3_flag)
-    _add_log(job, "Job queued.")
+    _add_log(job, "Tarea en cola.")
 
     with _jobs_lock:
         _jobs[job_id] = job
@@ -691,7 +699,7 @@ def get_job(job_id: str):
     with _jobs_lock:
         job = _jobs.get(job_id)
         if not job:
-            return jsonify({"error": "Job not found."}), 404
+            return jsonify({"error": "Tarea no encontrada."}), 404
 
         download_url = f"/download/{job.id}" if job.zip_path and os.path.exists(job.zip_path) else ""
 
@@ -718,7 +726,7 @@ def cancel_job(job_id: str):
     with _jobs_lock:
         job = _jobs.get(job_id)
         if not job:
-            return jsonify({"error": "Job not found."}), 404
+            return jsonify({"error": "Tarea no encontrada."}), 404
         if job.status in {"completed", "failed", "cancelled"}:
             return jsonify({"status": job.status}), 200
 
