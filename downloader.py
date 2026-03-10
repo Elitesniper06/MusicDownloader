@@ -516,6 +516,74 @@ def _escape_metadata(value: str) -> str:
     return value.replace(":", "\\:")
 
 
+def convert_to_mp3(
+    filepath: str,
+    log_callback: Callable[[str], None] = print,
+) -> Optional[str]:
+    """
+    Convierte cualquier archivo de audio a MP3 320 kbps CBR usando FFmpeg.
+
+    - Conserva metadatos con -map_metadata 0
+    - Usa tags ID3v2.3 para máxima compatibilidad
+    - Elimina el archivo original tras la conversión exitosa
+    - Si el archivo ya es .mp3, lo devuelve sin cambios
+
+    Retorna la ruta del archivo MP3, o None si falla.
+    """
+    import subprocess
+
+    if filepath.lower().endswith(".mp3"):
+        log_callback("   ℹ️ El archivo ya es MP3, no se necesita conversión.")
+        return filepath
+
+    mp3_path = os.path.splitext(filepath)[0] + ".mp3"
+
+    ffmpeg_cmd = "ffmpeg"
+    if _FFMPEG_PATH:
+        ffmpeg_cmd = os.path.join(_FFMPEG_PATH, "ffmpeg")
+
+    cmd = [
+        ffmpeg_cmd,
+        "-i", filepath,
+        "-codec:a", "libmp3lame",
+        "-b:a", "320k",
+        "-map_metadata", "0",
+        "-id3v2_version", "3",
+        "-y",
+        mp3_path,
+    ]
+
+    log_callback(f"   🔄 Convirtiendo a MP3 320 kbps: {os.path.basename(filepath)}")
+
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=300
+        )
+        if result.returncode == 0 and os.path.exists(mp3_path):
+            size_mb = os.path.getsize(mp3_path) / (1024 * 1024)
+            log_callback(
+                f"   ✅ Convertido: {os.path.basename(mp3_path)} ({size_mb:.1f} MB)"
+            )
+            try:
+                os.remove(filepath)
+            except OSError:
+                pass
+            return mp3_path
+        else:
+            stderr_snippet = (result.stderr or "")[-300:]
+            log_callback(f"   ❌ FFmpeg falló: {stderr_snippet}")
+            return None
+    except FileNotFoundError:
+        log_callback("   ❌ FFmpeg no encontrado. Instálalo para convertir a MP3.")
+        return None
+    except subprocess.TimeoutExpired:
+        log_callback("   ❌ Conversión a MP3 excedió el tiempo límite.")
+        return None
+    except Exception as e:
+        log_callback(f"   ❌ Error al convertir a MP3: {e}")
+        return None
+
+
 def _find_downloaded_file(folder: str, base_name: str) -> Optional[str]:
     """Busca el archivo descargado en la carpeta destino."""
     audio_extensions = [".m4a", ".opus", ".ogg", ".webm", ".mp3", ".flac", ".wav"]

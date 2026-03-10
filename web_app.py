@@ -10,7 +10,7 @@ from pathlib import Path
 
 from flask import Flask, Response, abort, jsonify, request, send_file
 
-from downloader import download_track, get_youtube_info, is_youtube_url
+from downloader import convert_to_mp3, download_track, get_youtube_info, is_youtube_url
 from settings import (
     DEEZER_ARL,
     DOWNLOAD_WORKDIR,
@@ -40,6 +40,7 @@ class DownloadJob:
     created_at: str = field(default_factory=lambda: _utc_now())
     finished_at: str = ""
     stop_requested: bool = False
+    convert_mp3: bool = False
     total_tracks: int = 0
     processed_tracks: int = 0
     success_count: int = 0
@@ -162,6 +163,15 @@ def _run_job(job_id: str) -> None:
                 slskd_api_key=SLSKD_API_KEY,
                 log_callback=lambda msg: _add_log(job, msg),
             )
+
+            # Convertir a MP3 si el usuario lo pidió
+            if result_path and job.convert_mp3:
+                mp3_result = convert_to_mp3(
+                    filepath=result_path,
+                    log_callback=lambda msg: _add_log(job, msg),
+                )
+                if mp3_result:
+                    result_path = mp3_result
 
             with _jobs_lock:
                 job.processed_tracks += 1
@@ -360,6 +370,56 @@ def index() -> Response:
     #folderBtn.active { background: #16a34a; }
     .folder-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .folder-row span { font-size: 13px; }
+    .options-row {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .mp3-toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .mp3-toggle input { display: none; }
+    .toggle-track {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      background: #2e3248;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      transition: background .25s;
+    }
+    .toggle-knob {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 18px;
+      height: 18px;
+      background: var(--muted);
+      border-radius: 50%;
+      transition: transform .25s, background .25s;
+    }
+    .mp3-toggle input:checked + .toggle-track {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+    .mp3-toggle input:checked + .toggle-track .toggle-knob {
+      transform: translateX(20px);
+      background: #fff;
+    }
+    .toggle-label {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+      transition: color .25s;
+    }
+    .mp3-toggle input:checked ~ .toggle-label {
+      color: var(--accent);
+    }
     @media (max-width: 900px) {
       .controls { grid-template-columns: 1fr; }
       .stats { grid-template-columns: 1fr 1fr; }
@@ -382,9 +442,16 @@ def index() -> Response:
         </div>
       </div>
 
-      <div class=\"folder-row\">
-        <button id=\"folderBtn\">Carpeta Personalizada</button>
-        <span id=\"folderLabel\" style=\"color: var(--muted);\">Archivos se guardan automáticamente en Descargas</span>
+      <div class=\"options-row\">
+        <label class=\"mp3-toggle\">
+          <input type=\"checkbox\" id=\"mp3Check\" />
+          <span class=\"toggle-track\"><span class=\"toggle-knob\"></span></span>
+          <span class=\"toggle-label\">Convertir a MP3 (320 kbps)</span>
+        </label>
+        <div class=\"folder-row\">
+          <button id=\"folderBtn\">Carpeta Personalizada</button>
+          <span id=\"folderLabel\" style=\"color: var(--muted);\">Archivos se guardan automáticamente en Descargas</span>
+        </div>
       </div>
 
       <div class=\"stats\">
@@ -504,7 +571,7 @@ def index() -> Response:
         const res = await fetch("/api/jobs", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url })
+          body: JSON.stringify({ url, convert_mp3: document.getElementById("mp3Check").checked })
         });
 
         if (!res.ok) {
@@ -606,7 +673,8 @@ def create_job():
     job_dir = WORK_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
 
-    job = DownloadJob(id=job_id, url=url, work_dir=str(job_dir))
+    convert_mp3_flag = bool(payload.get("convert_mp3", False))
+    job = DownloadJob(id=job_id, url=url, work_dir=str(job_dir), convert_mp3=convert_mp3_flag)
     _add_log(job, "Job queued.")
 
     with _jobs_lock:
