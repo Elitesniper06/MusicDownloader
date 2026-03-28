@@ -22,6 +22,7 @@ from settings import (
 )
 from spotify_utils import is_spotify_url, get_tracks_from_spotify_url
 from downloader import (
+    convert_to_mp3,
     download_track,
     is_youtube_url,
     get_youtube_info,
@@ -66,7 +67,7 @@ class MusicDownloaderApp(ctk.CTk):
     def _build_ui(self):
         # Grid principal
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(4, weight=1)  # Área de log expandible
+        self.grid_rowconfigure(5, weight=1)  # Área de log expandible
 
         # ── Título ─────────────────────────────────────────────────
         title_label = ctk.CTkLabel(
@@ -128,6 +129,22 @@ class MusicDownloaderApp(ctk.CTk):
         )
         self.dest_label.grid(row=0, column=1, sticky="w")
 
+        # ── Opciones (switch MP3) ─────────────────────────────────
+        options_frame = ctk.CTkFrame(self, fg_color="transparent")
+        options_frame.grid(row=4, column=0, padx=20, pady=(0, 10), sticky="ew")
+
+        self._mp3_var = ctk.BooleanVar(value=False)
+        self.mp3_switch = ctk.CTkSwitch(
+            options_frame,
+            text="Convertir a MP3 (320 kbps)",
+            variable=self._mp3_var,
+            font=ctk.CTkFont(size=13),
+            progress_color="#1DB954",
+            button_color="#cccccc",
+            button_hover_color="#ffffff",
+        )
+        self.mp3_switch.grid(row=0, column=0, sticky="w")
+
         # ── Área de log ────────────────────────────────────────────
         self.log_textbox = ctk.CTkTextbox(
             self,
@@ -138,11 +155,11 @@ class MusicDownloaderApp(ctk.CTk):
             border_width=1,
             border_color="#333355",
         )
-        self.log_textbox.grid(row=4, column=0, padx=20, pady=(5, 10), sticky="nsew")
+        self.log_textbox.grid(row=5, column=0, padx=20, pady=(5, 10), sticky="nsew")
 
         # ── Frame inferior (progreso + botón de descarga) ──────────
         bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
-        bottom_frame.grid(row=5, column=0, padx=20, pady=(0, 10), sticky="ew")
+        bottom_frame.grid(row=6, column=0, padx=20, pady=(0, 10), sticky="ew")
         bottom_frame.grid_columnconfigure(0, weight=1)
 
         self.progress_bar = ctk.CTkProgressBar(
@@ -183,7 +200,7 @@ class MusicDownloaderApp(ctk.CTk):
             font=ctk.CTkFont(size=11),
             text_color="#555577",
         )
-        credits_label.grid(row=6, column=0, padx=20, pady=(0, 10))
+        credits_label.grid(row=7, column=0, padx=20, pady=(0, 10))
 
     # ================================================================
     # ACCIONES DE LA INTERFAZ
@@ -224,6 +241,7 @@ class MusicDownloaderApp(ctk.CTk):
         self._stop_requested = False
         self.download_btn.configure(state="disabled", text="⏳ Descargando...")
         self.stop_btn.configure(state="normal")
+        self.mp3_switch.configure(state="disabled")
         self.progress_bar.start()
 
         thread = threading.Thread(
@@ -313,6 +331,14 @@ class MusicDownloaderApp(ctk.CTk):
                 )
 
                 if result:
+                    # Convertir a MP3 si el switch está activado
+                    if self._mp3_var.get():
+                        mp3_result = convert_to_mp3(
+                            filepath=result,
+                            log_callback=self._log,
+                        )
+                        if mp3_result:
+                            result = mp3_result
                     success_count += 1
                 else:
                     fail_count += 1
@@ -335,6 +361,7 @@ class MusicDownloaderApp(ctk.CTk):
         self._stop_requested = False
         self.download_btn.configure(state="normal", text="⬇️  DESCARGAR")
         self.stop_btn.configure(state="disabled", text="⏹  PARAR")
+        self.mp3_switch.configure(state="normal")
         self.progress_bar.stop()
         self.progress_bar.set(0)
 

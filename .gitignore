@@ -35,5 +35,5 @@ config.py
 *.ogg
 *.webm
 
-# Runtime web
-tmp_downloads/
+# PyInstaller
+*.spec

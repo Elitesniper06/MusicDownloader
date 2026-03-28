@@ -5,5 +5,3 @@ mutagen>=1.47.0
 Pillow>=10.0.0
 requests>=2.31.0
 pycryptodome>=3.20.0
-Flask>=3.0.0
-gunicorn>=22.0.0

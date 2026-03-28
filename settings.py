@@ -25,10 +25,3 @@ SPOTIFY_CLIENT_SECRET = _get_setting("SPOTIFY_CLIENT_SECRET")
 DEEZER_ARL = _get_setting("DEEZER_ARL")
 SLSKD_API_URL = _get_setting("SLSKD_API_URL", "http://localhost:5030")
 SLSKD_API_KEY = _get_setting("SLSKD_API_KEY")
-
-# Web runtime settings
-DOWNLOAD_WORKDIR = _get_setting("DOWNLOAD_WORKDIR", "tmp_downloads")
-JOB_TTL_SECONDS = int(_get_setting("JOB_TTL_SECONDS", "21600"))
-MAX_LOG_LINES = int(_get_setting("MAX_LOG_LINES", "600"))
-MAX_TRACKS_PER_JOB = int(_get_setting("MAX_TRACKS_PER_JOB", "250"))
-PORT = int(_get_setting("PORT", "5000"))

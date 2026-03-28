@@ -1,5 +1,0 @@
-[phases.setup]
-nixPkgs = ["python311", "ffmpeg"]
-
-[start]
-cmd = "gunicorn web_app:app --bind 0.0.0.0:$PORT"

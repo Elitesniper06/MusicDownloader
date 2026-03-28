@@ -3,6 +3,7 @@
 # ============================================================================
 
 import os
+import sys
 import re
 import json
 import shutil
@@ -36,6 +37,20 @@ def _find_ffmpeg_path() -> Optional[str]:
     no tiene el PATH actualizado. Esta función lee el PATH directamente
     del registro del sistema para encontrarlo.
     """
+    # 0. Buscar FFmpeg empaquetado junto al ejecutable (PyInstaller)
+    if getattr(sys, 'frozen', False):
+        # Cuando se ejecuta como .exe empaquetado con PyInstaller
+        base_dir = os.path.dirname(sys.executable)
+        bundled = os.path.join(base_dir, "_internal", "ffmpeg")
+        if os.path.isfile(os.path.join(bundled, "ffmpeg.exe")):
+            return bundled
+    else:
+        # En desarrollo, buscar junto al script
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        bundled = os.path.join(script_dir, "ffmpeg")
+        if os.path.isfile(os.path.join(bundled, "ffmpeg.exe")):
+            return bundled
+
     # 1. Probar si ya está en el PATH actual
     if shutil.which("ffmpeg"):
         return os.path.dirname(shutil.which("ffmpeg"))
