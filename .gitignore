@@ -38,5 +38,5 @@ cookies.txt
 *.ogg
 *.webm
 
-# Runtime web
-tmp_downloads/
+# PyInstaller
+*.spec
