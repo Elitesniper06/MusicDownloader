@@ -104,6 +104,29 @@ def _find_ffmpeg_path() -> Optional[str]:
 _FFMPEG_PATH: Optional[str] = _find_ffmpeg_path()
 
 
+def _find_cookies_file() -> Optional[str]:
+    """
+    Busca un archivo cookies.txt para autenticación con YouTube.
+    Prioridad:
+      1. Variable de entorno YOUTUBE_COOKIES_FILE
+      2. cookies.txt en el directorio del proyecto
+    """
+    # 1. Variable de entorno
+    env_path = os.environ.get("YOUTUBE_COOKIES_FILE", "")
+    if env_path and os.path.isfile(env_path):
+        return env_path
+
+    # 2. cookies.txt junto a este script
+    local_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
+    if os.path.isfile(local_path):
+        return local_path
+
+    return None
+
+
+_COOKIES_FILE: Optional[str] = _find_cookies_file()
+
+
 # ============================================================================
 # PLAN A — Descarga FLAC real vía Deezer (usando ARL) o Soulseek (slskd API)
 # ============================================================================
@@ -396,6 +419,8 @@ def plan_b_download(
             },
         ],
         "prefer_ffmpeg": True,
+        # Simular cliente Android Music para evitar detección de bots
+        "extractor_args": {"youtube": {"player_client": ["android_music"]}},
         # Metadatos que yt-dlp pasará a FFmpeg
         "parse_metadata": [
             f":{_escape_metadata(title)}:%(meta_title)s",
@@ -406,6 +431,11 @@ def plan_b_download(
     # Indicar la ruta de FFmpeg si fue encontrada automáticamente
     if _FFMPEG_PATH:
         ydl_opts["ffmpeg_location"] = _FFMPEG_PATH
+
+    # Usar cookies.txt si existe para evitar bloqueo de YouTube
+    if _COOKIES_FILE:
+        ydl_opts["cookiefile"] = _COOKIES_FILE
+        log_callback("   🍪 Usando cookies.txt para autenticación.")
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -734,6 +764,8 @@ def get_youtube_info(url: str) -> list[dict]:
         }
         if _FFMPEG_PATH:
             ydl_opts["ffmpeg_location"] = _FFMPEG_PATH
+        if _COOKIES_FILE:
+            ydl_opts["cookiefile"] = _COOKIES_FILE
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -752,6 +784,8 @@ def get_youtube_info(url: str) -> list[dict]:
         }
         if _FFMPEG_PATH:
             ydl_opts["ffmpeg_location"] = _FFMPEG_PATH
+        if _COOKIES_FILE:
+            ydl_opts["cookiefile"] = _COOKIES_FILE
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)

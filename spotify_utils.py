@@ -13,6 +13,9 @@ except ImportError:
     SPOTIPY_AVAILABLE = False
 
 
+_SPOTIFY_OWNER_PREMIUM_ERROR = "active premium subscription required for the owner of the app"
+
+
 def is_spotify_url(url: str) -> bool:
     """Detecta si una URL es de Spotify."""
     return bool(re.search(r"open\.spotify\.com/(track|album|playlist)/", url))
@@ -71,48 +74,57 @@ def get_tracks_from_spotify_url(
 
     Soporta: tracks individuales, álbumes y playlists.
     """
-    sp = create_spotify_client(client_id, client_secret)
-    resource_type = get_spotify_type(url)
-    resource_id = extract_spotify_id(url)
+    try:
+        sp = create_spotify_client(client_id, client_secret)
+        resource_type = get_spotify_type(url)
+        resource_id = extract_spotify_id(url)
 
-    if not resource_type or not resource_id:
-        raise ValueError(f"URL de Spotify no válida: {url}")
+        if not resource_type or not resource_id:
+            raise ValueError(f"URL de Spotify no válida: {url}")
 
-    tracks_info = []
+        tracks_info = []
 
-    if resource_type == "track":
-        track = sp.track(resource_id)
-        tracks_info.append(_parse_track(track))
+        if resource_type == "track":
+            track = sp.track(resource_id)
+            tracks_info.append(_parse_track(track))
 
-    elif resource_type == "album":
-        album = sp.album(resource_id)
-        cover_url = _get_best_cover(album.get("images", []))
-        results = sp.album_tracks(resource_id)
-        all_items = results["items"]
-        while results["next"]:
-            results = sp.next(results)
-            all_items.extend(results["items"])
-        for item in all_items:
-            info = _parse_track(item)
-            info["album"] = album["name"]
-            info["cover_url"] = cover_url
-            tracks_info.append(info)
+        elif resource_type == "album":
+            album = sp.album(resource_id)
+            cover_url = _get_best_cover(album.get("images", []))
+            results = sp.album_tracks(resource_id)
+            all_items = results["items"]
+            while results["next"]:
+                results = sp.next(results)
+                all_items.extend(results["items"])
+            for item in all_items:
+                info = _parse_track(item)
+                info["album"] = album["name"]
+                info["cover_url"] = cover_url
+                tracks_info.append(info)
 
-    elif resource_type == "playlist":
-        results = sp.playlist_items(
-            resource_id,
-            fields="items(track(name,artists,album,duration_ms,external_ids,track_number)),next",
-        )
-        all_items = results["items"]
-        while results["next"]:
-            results = sp.next(results)
-            all_items.extend(results["items"])
-        for item in all_items:
-            track = item.get("track")
-            if track:
-                tracks_info.append(_parse_track(track))
+        elif resource_type == "playlist":
+            results = sp.playlist_items(
+                resource_id,
+                fields="items(track(name,artists,album,duration_ms,external_ids,track_number)),next",
+            )
+            all_items = results["items"]
+            while results["next"]:
+                results = sp.next(results)
+                all_items.extend(results["items"])
+            for item in all_items:
+                track = item.get("track")
+                if track:
+                    tracks_info.append(_parse_track(track))
 
-    return tracks_info
+        return tracks_info
+    except Exception as exc:
+        message = str(exc).lower()
+        if _SPOTIFY_OWNER_PREMIUM_ERROR in message:
+            raise RuntimeError(
+                "Spotify bloqueó la lectura de playlists porque la cuenta propietaria de la app en Spotify Developer necesita Premium activo. "
+                "Activa Premium en la cuenta dueña del Client ID/Client Secret, espera unas horas y vuelve a intentar."
+            ) from exc
+        raise
 
 
 def _parse_track(track: dict) -> dict:

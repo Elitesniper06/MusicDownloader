@@ -7,7 +7,6 @@
 import os
 import sys
 import threading
-from pathlib import Path
 from tkinter import filedialog
 
 import customtkinter as ctk
@@ -35,9 +34,26 @@ from downloader import (
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
-APP_TITLE = "🎵 Music Downloader Pro"
+APP_TITLE = "FullCalidad"
 APP_WIDTH = 780
 APP_HEIGHT = 620
+
+STYLE = {
+    "window_bg": "#0F172A",
+    "card": "#111C33",
+    "card_alt": "#13213D",
+    "border": "#2B3E63",
+    "text": "#E7EEFF",
+    "muted": "#9EB0D1",
+    "accent": "#22C55E",
+    "accent_hover": "#16A34A",
+    "danger": "#D9465D",
+    "danger_hover": "#B73347",
+    "warning": "#F59E0B",
+    "log_bg": "#0D1629",
+    "input_bg": "#0C1A33",
+    "chip": "#1A2A4A",
+}
 
 
 class MusicDownloaderApp(ctk.CTk):
@@ -51,6 +67,7 @@ class MusicDownloaderApp(ctk.CTk):
         self.geometry(f"{APP_WIDTH}x{APP_HEIGHT}")
         self.minsize(650, 550)
         self.resizable(True, True)
+        self._apply_window_icon()
 
         # ── Estado ─────────────────────────────────────────────────
         self._dest_folder: str = ""
@@ -65,15 +82,18 @@ class MusicDownloaderApp(ctk.CTk):
     # ================================================================
 
     def _build_ui(self):
-        # Grid principal
+        self.configure(fg_color=STYLE["window_bg"])
+
+        # Grid principal (igual estructura que antes)
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(5, weight=1)  # Área de log expandible
+        self.grid_rowconfigure(5, weight=1)
 
         # ── Título ─────────────────────────────────────────────────
         title_label = ctk.CTkLabel(
             self,
-            text="🎵 Music Downloader Pro",
-            font=ctk.CTkFont(size=26, weight="bold"),
+            text="FullCalidad",
+            font=ctk.CTkFont(size=27, weight="bold"),
+            text_color=STYLE["text"],
         )
         title_label.grid(row=0, column=0, padx=20, pady=(20, 5), sticky="w")
 
@@ -81,12 +101,18 @@ class MusicDownloaderApp(ctk.CTk):
             self,
             text="Descarga música en la mejor calidad posible a tu pendrive",
             font=ctk.CTkFont(size=13),
-            text_color="gray",
+            text_color=STYLE["muted"],
         )
-        subtitle_label.grid(row=1, column=0, padx=20, pady=(0, 15), sticky="w")
+        subtitle_label.grid(row=1, column=0, padx=20, pady=(0, 14), sticky="w")
 
         # ── Frame de URL ───────────────────────────────────────────
-        url_frame = ctk.CTkFrame(self, fg_color="transparent")
+        url_frame = ctk.CTkFrame(
+            self,
+            fg_color=STYLE["card"],
+            corner_radius=14,
+            border_width=1,
+            border_color=STYLE["border"],
+        )
         url_frame.grid(row=2, column=0, padx=20, pady=(0, 10), sticky="ew")
         url_frame.grid_columnconfigure(0, weight=1)
 
@@ -94,19 +120,30 @@ class MusicDownloaderApp(ctk.CTk):
             url_frame,
             text="🔗 URL (Spotify / YouTube / YouTube Music):",
             font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=STYLE["text"],
         )
-        url_label.grid(row=0, column=0, sticky="w", pady=(0, 5))
+        url_label.grid(row=0, column=0, sticky="w", padx=14, pady=(12, 6))
 
         self.url_entry = ctk.CTkEntry(
             url_frame,
             placeholder_text="Pega aquí la URL de la canción, álbum o playlist...",
-            height=40,
+            height=42,
             font=ctk.CTkFont(size=13),
+            fg_color=STYLE["input_bg"],
+            border_color=STYLE["border"],
+            text_color=STYLE["text"],
+            placeholder_text_color=STYLE["muted"],
         )
-        self.url_entry.grid(row=1, column=0, sticky="ew")
+        self.url_entry.grid(row=1, column=0, sticky="ew", padx=14, pady=(0, 12))
 
         # ── Frame de destino ───────────────────────────────────────
-        dest_frame = ctk.CTkFrame(self, fg_color="transparent")
+        dest_frame = ctk.CTkFrame(
+            self,
+            fg_color=STYLE["card_alt"],
+            corner_radius=14,
+            border_width=1,
+            border_color=STYLE["border"],
+        )
         dest_frame.grid(row=3, column=0, padx=20, pady=(0, 10), sticky="ew")
         dest_frame.grid_columnconfigure(1, weight=1)
 
@@ -116,21 +153,30 @@ class MusicDownloaderApp(ctk.CTk):
             command=self._browse_folder,
             width=240,
             height=38,
-            font=ctk.CTkFont(size=13),
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color=STYLE["chip"],
+            hover_color=STYLE["border"],
+            text_color=STYLE["text"],
         )
-        self.browse_btn.grid(row=0, column=0, padx=(0, 10))
+        self.browse_btn.grid(row=0, column=0, padx=(12, 10), pady=12)
 
         self.dest_label = ctk.CTkLabel(
             dest_frame,
             text="⚠️ Ninguna carpeta seleccionada",
             font=ctk.CTkFont(size=12),
-            text_color="#FF9500",
+            text_color=STYLE["warning"],
             anchor="w",
         )
-        self.dest_label.grid(row=0, column=1, sticky="w")
+        self.dest_label.grid(row=0, column=1, sticky="w", pady=12)
 
         # ── Opciones (switch MP3) ─────────────────────────────────
-        options_frame = ctk.CTkFrame(self, fg_color="transparent")
+        options_frame = ctk.CTkFrame(
+            self,
+            fg_color=STYLE["card"],
+            corner_radius=14,
+            border_width=1,
+            border_color=STYLE["border"],
+        )
         options_frame.grid(row=4, column=0, padx=20, pady=(0, 10), sticky="ew")
 
         self._mp3_var = ctk.BooleanVar(value=False)
@@ -139,11 +185,12 @@ class MusicDownloaderApp(ctk.CTk):
             text="Convertir a MP3 (320 kbps)",
             variable=self._mp3_var,
             font=ctk.CTkFont(size=13),
-            progress_color="#1DB954",
-            button_color="#cccccc",
-            button_hover_color="#ffffff",
+            progress_color=STYLE["accent"],
+            button_color="#D7E1F8",
+            button_hover_color="#FFFFFF",
+            text_color=STYLE["text"],
         )
-        self.mp3_switch.grid(row=0, column=0, sticky="w")
+        self.mp3_switch.grid(row=0, column=0, sticky="w", padx=14, pady=10)
 
         # ── Área de log ────────────────────────────────────────────
         self.log_textbox = ctk.CTkTextbox(
@@ -151,21 +198,33 @@ class MusicDownloaderApp(ctk.CTk):
             font=ctk.CTkFont(family="Consolas", size=12),
             state="disabled",
             wrap="word",
-            fg_color="#1a1a2e",
+            fg_color=STYLE["log_bg"],
+            text_color=STYLE["text"],
             border_width=1,
-            border_color="#333355",
+            border_color=STYLE["border"],
+            corner_radius=12,
         )
         self.log_textbox.grid(row=5, column=0, padx=20, pady=(5, 10), sticky="nsew")
 
         # ── Frame inferior (progreso + botón de descarga) ──────────
-        bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
+        bottom_frame = ctk.CTkFrame(
+            self,
+            fg_color=STYLE["card"],
+            corner_radius=14,
+            border_width=1,
+            border_color=STYLE["border"],
+        )
         bottom_frame.grid(row=6, column=0, padx=20, pady=(0, 10), sticky="ew")
         bottom_frame.grid_columnconfigure(0, weight=1)
 
         self.progress_bar = ctk.CTkProgressBar(
-            bottom_frame, mode="indeterminate", height=6
+            bottom_frame,
+            mode="indeterminate",
+            height=8,
+            progress_color=STYLE["accent"],
+            fg_color=STYLE["input_bg"],
         )
-        self.progress_bar.grid(row=0, column=0, sticky="ew", padx=(0, 15))
+        self.progress_bar.grid(row=0, column=0, sticky="ew", padx=(12, 15), pady=12)
         self.progress_bar.set(0)
 
         self.download_btn = ctk.CTkButton(
@@ -175,10 +234,11 @@ class MusicDownloaderApp(ctk.CTk):
             width=200,
             height=45,
             font=ctk.CTkFont(size=16, weight="bold"),
-            fg_color="#1DB954",          # Verde Spotify
-            hover_color="#1AA34A",
+            fg_color=STYLE["accent"],
+            hover_color=STYLE["accent_hover"],
+            text_color="#062614",
         )
-        self.download_btn.grid(row=0, column=1, padx=(0, 8))
+        self.download_btn.grid(row=0, column=1, padx=(0, 8), pady=12)
 
         self.stop_btn = ctk.CTkButton(
             bottom_frame,
@@ -187,18 +247,18 @@ class MusicDownloaderApp(ctk.CTk):
             width=120,
             height=45,
             font=ctk.CTkFont(size=14, weight="bold"),
-            fg_color="#cc3333",
-            hover_color="#aa2222",
+            fg_color=STYLE["danger"],
+            hover_color=STYLE["danger_hover"],
             state="disabled",
         )
-        self.stop_btn.grid(row=0, column=2)
+        self.stop_btn.grid(row=0, column=2, padx=(0, 12), pady=12)
 
         # ── Créditos ──────────────────────────────────────────────
         credits_label = ctk.CTkLabel(
             self,
-            text="Plan A: FLAC (Deezer/Soulseek)  →  Plan B: Mejor calidad (yt-dlp)",
+            text="Plan A: FLAC (Deezer)  →  Plan B: Mejor calidad (yt-dlp)",
             font=ctk.CTkFont(size=11),
-            text_color="#555577",
+            text_color=STYLE["muted"],
         )
         credits_label.grid(row=7, column=0, padx=20, pady=(0, 10))
 
@@ -206,15 +266,47 @@ class MusicDownloaderApp(ctk.CTk):
     # ACCIONES DE LA INTERFAZ
     # ================================================================
 
+    def _resource_path(self, relative_path: str) -> str:
+        """Resuelve rutas para ejecución normal y para PyInstaller."""
+        base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+        return os.path.join(base_path, relative_path)
+
+    def _apply_window_icon(self):
+        """Aplica un icono .ico personalizado si existe."""
+        if os.name != "nt":
+            return
+
+        try:
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("fullcalidad.desktop.app")
+        except Exception:
+            pass
+
+        icon_candidates = [
+            "app.ico",
+            "assets\\app.ico",
+            "fullcalidad.ico",
+        ]
+
+        for rel_path in icon_candidates:
+            icon_path = self._resource_path(rel_path)
+            if os.path.isfile(icon_path):
+                try:
+                    self.iconbitmap(icon_path)
+                    return
+                except Exception:
+                    continue
+
     def _browse_folder(self):
         """Abre un diálogo para seleccionar la carpeta destino (pendrive)."""
         folder = filedialog.askdirectory(title="Selecciona la carpeta de destino (Pendrive)")
         if folder:
-            self._dest_folder = folder
             self.dest_label.configure(
                 text=f"📂 {folder}",
-                text_color="#1DB954",
+                text_color=STYLE["accent"],
             )
+            self._dest_folder = folder
             self._log(f"Carpeta destino: {folder}")
 
     def _on_download_click(self):
