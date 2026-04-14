@@ -29,6 +29,15 @@ if not defined FFMPEG_DIR (
 echo   FFmpeg encontrado en: %FFMPEG_DIR%
 echo.
 
+set "ICON_ARGS="
+if exist "app.ico" (
+    set "ICON_ARGS=--icon app.ico --add-data app.ico;."
+    echo   Icono personalizado detectado: app.ico
+) else (
+    echo   AVISO: No se encontro app.ico. El .exe usara icono por defecto.
+)
+echo.
+
 pyinstaller ^
     --noconfirm ^
     --onedir ^
@@ -47,6 +56,7 @@ pyinstaller ^
     --hidden-import yt_dlp ^
     --hidden-import requests ^
     --hidden-import Crypto ^
+    %ICON_ARGS% ^
     app.py
 
 if %ERRORLEVEL% EQU 0 (
